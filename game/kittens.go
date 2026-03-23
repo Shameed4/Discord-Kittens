@@ -44,41 +44,76 @@ func (c Card) String() string {
 
 // 2. Define the Player
 type Player struct {
-	Name    string
 	Hand    []Card
 	IsAlive bool
+
+	Send chan GameState
+}
+
+type GameState struct {
+}
+
+type JoinRequest struct {
+	Send   chan GameState
+	Result chan JoinResponse
+}
+
+type JoinResponse struct {
+	success  bool
+	playerId int
+}
+
+type ActionType = int
+
+const (
+	PlayCard ActionType = iota
+	DrawCard
+	Quit
+)
+
+type PlayerAction struct {
+	playerId   int
+	actionType ActionType
+}
+
+type Lobby struct {
+	deck               []Card
+	players            []*Player
+	currentPlayerIndex int
+	inProgress         bool
+
+	ActionQueue chan PlayerAction
+	JoinQueue   chan JoinRequest
 }
 
 // Global state
 var (
-	deck    []Card
-	players []*Player
 	scanner = bufio.NewScanner(os.Stdin)
 	rng     = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 // --- Helper Functions ---
 
-func shuffleDeck() {
-	rng.Shuffle(len(deck), func(i, j int) {
-		deck[i], deck[j] = deck[j], deck[i]
+func (lobby *Lobby) shuffleDeck() {
+	rng.Shuffle(len(lobby.deck), func(i, j int) {
+		lobby.deck[i], lobby.deck[j] = lobby.deck[j], lobby.deck[i]
 	})
 }
 
-func drawCard() Card {
-	if len(deck) == 0 {
+func (lobby *Lobby) drawCard() Card {
+	if len(lobby.deck) == 0 {
 		fmt.Println("The deck is empty! (This shouldn't happen with correct kitten math)")
 		os.Exit(1)
 	}
 	// Pop the top card
-	drawn := deck[0]
-	deck = deck[1:]
+	drawn := lobby.deck[0]
+	lobby.deck = lobby.deck[1:]
 	return drawn
 }
 
-func getActivePlayerCount() int {
+func (lobby *Lobby) getActivePlayerCount() int {
 	count := 0
-	for _, p := range players {
+	for _, p := range lobby.players {
 		if p.IsAlive {
 			count++
 		}
@@ -88,18 +123,10 @@ func getActivePlayerCount() int {
 
 // --- Setup & Game Loop ---
 
-func setupGame() {
-	fmt.Print("Enter the number of players: ")
-	scanner.Scan()
-	numPlayers, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-	if err != nil || numPlayers < 2 {
-		fmt.Println("Invalid input. Defaulting to 2 players.")
-		numPlayers = 2
-	}
-
+func (lobby *Lobby) setupGame(numPlayers int) {
 	// Create players
 	for i := 1; i <= numPlayers; i++ {
-		players = append(players, &Player{
+		lobby.players = append(lobby.players, &Player{
 			Name:    fmt.Sprintf("Player %d", i),
 			Hand:    []Card{},
 			IsAlive: true,
@@ -116,32 +143,32 @@ func setupGame() {
 	}
 
 	// Put safe cards in the main deck and shuffle
-	deck = safeDeck
-	shuffleDeck()
+	lobby.deck = safeDeck
+	lobby.shuffleDeck()
 
 	// Deal 1 diffuse + 4 starting cards to each player
-	for _, p := range players {
+	for _, p := range lobby.players {
 		p.Hand = append(p.Hand, Defuse)
 		for i := 0; i < 4; i++ {
-			p.Hand = append(p.Hand, drawCard())
+			p.Hand = append(p.Hand, lobby.drawCard())
 		}
 	}
 
 	// Insert (Players - 1) Exploding Kittens into the remaining deck
 	for i := 0; i < numPlayers-1; i++ {
-		deck = append(deck, ExplodingKitten)
+		lobby.deck = append(lobby.deck, ExplodingKitten)
 	}
 
 	for i := 0; i < ExtraDefuses; i++ {
-		deck = append(deck, Defuse)
+		lobby.deck = append(lobby.deck, Defuse)
 	}
 
 	// Final shuffle
-	shuffleDeck()
-	fmt.Printf("\n--- Game Setup Complete! Deck has %d cards. ---\n", len(deck))
+	lobby.shuffleDeck()
+	fmt.Printf("\n--- Game Setup Complete! Deck has %d cards. ---\n", len(lobby.deck))
 }
 
-func playTurn(p *Player) {
+func (lobby *Lobby) playTurn(p *Player) {
 	fmt.Printf("\n==============================\n")
 	fmt.Printf("It is %s's turn!\n", p.Name)
 
@@ -162,7 +189,7 @@ func playTurn(p *Player) {
 
 		// Handle Drawing
 		if input == "D" {
-			drawn := drawCard()
+			drawn := lobby.drawCard()
 			fmt.Printf("\n>>> You drew: %s <<<\n", drawn)
 
 			if drawn == ExplodingKitten {
@@ -170,14 +197,14 @@ func playTurn(p *Player) {
 					p.Hand = append(p.Hand[:defuseIndex], p.Hand[defuseIndex+1:]...)
 					fmt.Printf("✅ %s used a defuse card! Crisis averted!\n", p.Name)
 
-					fmt.Printf("Enter the new kitten position (0-%d)", len(deck))
+					fmt.Printf("Enter the new kitten position (0-%d)", len(lobby.deck))
 					scanner.Scan()
 					newKittenPosition, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-					if err != nil || newKittenPosition < 0 || newKittenPosition > len(deck) {
+					if err != nil || newKittenPosition < 0 || newKittenPosition > len(lobby.deck) {
 						fmt.Println("Invalid input. Putting kitten on top")
 						newKittenPosition = 0
 					}
-					deck = slices.Insert(deck, newKittenPosition, ExplodingKitten)
+					lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
 				} else {
 					p.IsAlive = false
 					fmt.Printf("💀 %s has no defuse card and is eliminated!\n", p.Name)
@@ -223,31 +250,26 @@ func playTurn(p *Player) {
 	}
 }
 
-func main() {
-	fmt.Println("🧨 Welcome to CLI Exploding Kittens (Sudden Death Edition) 🧨")
-	setupGame()
+func (lobby *Lobby) run() {
+	for {
+		select {
+		case joinReq := <-lobby.JoinQueue:
+			if lobby.inProgress {
+				joinReq.Result <- JoinResponse{
+					success: false,
+				}
+			}
+			newPlayer := &Player{
+				Send: joinReq.Send,
+			}
+			joinReq.Result <- JoinResponse{
+				success:  true,
+				playerId: len(lobby.players), // TODO: make this resistant to players exiting
+			}
+			lobby.players = append(lobby.players, newPlayer)
 
-	currentPlayerIndex := 0
-
-	// Game loop continues until only 1 player is left
-	for getActivePlayerCount() > 1 {
-		p := players[currentPlayerIndex]
-
-		// Only alive players get to take a turn
-		if p.IsAlive {
-			playTurn(p)
-			time.Sleep(1 * time.Second) // Small pause for readability in the terminal
-		}
-
-		// Move to the next player, wrapping around the slice using modulo
-		currentPlayerIndex = (currentPlayerIndex + 1) % len(players)
-	}
-
-	// Find and announce the winner
-	for _, p := range players {
-		if p.IsAlive {
-			fmt.Printf("\n🎉🎉🎉 %s SURVIVED AND WINS THE GAME! 🎉🎉🎉\n", p.Name)
-			break
+		case actionReq := <-lobby.ActionQueue:
+			fmt.Print(actionReq) // TODO: handle action request
 		}
 	}
 }
