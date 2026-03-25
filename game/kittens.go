@@ -44,13 +44,26 @@ func (c Card) String() string {
 
 // 2. Define the Player
 type Player struct {
-	Hand    []Card
-	IsAlive bool
+	Hand     []Card
+	IsAlive  bool
+	IsOnline bool
 
 	Send chan GameState
 }
 
+type PlayerGameState struct {
+	cards    int
+	IsAlive  bool
+	IsOnline bool
+}
+
 type GameState struct {
+	playerId       int
+	remainingCards int
+	players        []PlayerGameState
+	turnState      TurnState
+
+	err string
 }
 
 type JoinRequest struct {
@@ -60,6 +73,7 @@ type JoinRequest struct {
 
 type JoinResponse struct {
 	success  bool
+	error    string
 	playerId int
 }
 
@@ -68,19 +82,31 @@ type ActionType = int
 const (
 	PlayCard ActionType = iota
 	DrawCard
+	PlaceKitten
 	Quit
 )
 
 type PlayerAction struct {
 	playerId   int
 	actionType ActionType
+
+	index int // optional; used for placing kittens
 }
+
+type TurnState = int
+
+const (
+	Normal TurnState = iota
+	AwaitingKittenPlacement
+	// TODO: add things like awaiting nope, awaiting alter the future, awaiting favor, awaiting 5 unique, etc
+)
 
 type Lobby struct {
 	deck               []Card
 	players            []*Player
 	currentPlayerIndex int
 	inProgress         bool
+	turnState          TurnState
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
@@ -93,6 +119,13 @@ var (
 )
 
 // --- Helper Functions ---
+func NewLobby() *Lobby {
+	return &Lobby{
+		players:     make([]*Player, 0),
+		ActionQueue: make(chan PlayerAction),
+		JoinQueue:   make(chan JoinRequest),
+	}
+}
 
 func (lobby *Lobby) shuffleDeck() {
 	rng.Shuffle(len(lobby.deck), func(i, j int) {
@@ -123,16 +156,7 @@ func (lobby *Lobby) getActivePlayerCount() int {
 
 // --- Setup & Game Loop ---
 
-func (lobby *Lobby) setupGame(numPlayers int) {
-	// Create players
-	for i := 1; i <= numPlayers; i++ {
-		lobby.players = append(lobby.players, &Player{
-			Name:    fmt.Sprintf("Player %d", i),
-			Hand:    []Card{},
-			IsAlive: true,
-		})
-	}
-
+func (lobby *Lobby) setupDeck(numPlayers int) {
 	// Create a pool of safe cards (Lots of Cats, some Skips)
 	var safeDeck []Card
 	for i := 0; i < numPlayers*CatMultiplier; i++ {
@@ -168,85 +192,85 @@ func (lobby *Lobby) setupGame(numPlayers int) {
 	fmt.Printf("\n--- Game Setup Complete! Deck has %d cards. ---\n", len(lobby.deck))
 }
 
-func (lobby *Lobby) playTurn(p *Player) {
-	fmt.Printf("\n==============================\n")
-	fmt.Printf("It is %s's turn!\n", p.Name)
-
-	for {
-		fmt.Println("\nYour Hand:")
-		if len(p.Hand) == 0 {
-			fmt.Println("  (Empty)")
-		} else {
-			for i, card := range p.Hand {
-				fmt.Printf("  [%d] %s\n", i, card)
-			}
+func (lobby *Lobby) playTurn(action PlayerAction) {
+	player := lobby.players[action.playerId]
+	isPlayerTurn := action.playerId == lobby.currentPlayerIndex
+	switch action.actionType {
+	case Quit:
+		if player.IsOnline {
+			player.IsAlive = false
+			player.IsOnline = false
+			close(player.Send)
+			// TODO: make sure this player gets out so lobby doesn't freeze
 		}
-		fmt.Println("  [D] Draw a card (Ends Turn)")
+	case DrawCard:
+		if !isPlayerTurn {
+			lobby.sendError(action.playerId, "Not your turn")
+			return
+		}
+		if lobby.turnState != Normal {
+			lobby.sendError(action.playerId, "Cannot pick up cards right now")
+			return
+		}
 
-		fmt.Print("\nChoose a card to play (number) or type 'D' to draw: ")
-		scanner.Scan()
-		input := strings.ToUpper(strings.TrimSpace(scanner.Text()))
+		drawn := lobby.drawCard()
 
-		// Handle Drawing
-		if input == "D" {
-			drawn := lobby.drawCard()
-			fmt.Printf("\n>>> You drew: %s <<<\n", drawn)
+		if drawn == ExplodingKitten {
+			if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
+				player.Hand = append(player.Hand[:defuseIndex], player.Hand[defuseIndex+1:]...)
+				lobby.turnState = PlaceKitten
 
-			if drawn == ExplodingKitten {
-				if defuseIndex := slices.Index(p.Hand, Defuse); defuseIndex != -1 {
-					p.Hand = append(p.Hand[:defuseIndex], p.Hand[defuseIndex+1:]...)
-					fmt.Printf("✅ %s used a defuse card! Crisis averted!\n", p.Name)
-
-					fmt.Printf("Enter the new kitten position (0-%d)", len(lobby.deck))
-					scanner.Scan()
-					newKittenPosition, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
-					if err != nil || newKittenPosition < 0 || newKittenPosition > len(lobby.deck) {
-						fmt.Println("Invalid input. Putting kitten on top")
-						newKittenPosition = 0
-					}
-					lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
-				} else {
-					p.IsAlive = false
-					fmt.Printf("💀 %s has no defuse card and is eliminated!\n", p.Name)
+				fmt.Printf("Enter the new kitten position (0-%d)", len(lobby.deck))
+				scanner.Scan()
+				newKittenPosition, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
+				if err != nil || newKittenPosition < 0 || newKittenPosition > len(lobby.deck) {
+					fmt.Println("Invalid input. Putting kitten on top")
+					newKittenPosition = 0
 				}
+				lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
 			} else {
-				p.Hand = append(p.Hand, drawn)
-				fmt.Println("Card added to your hand.")
+				player.IsAlive = false
 			}
-			break // Turn ends after drawing
 		}
+	}
+}
 
-		// Handle Playing a Card
-		idx, err := strconv.Atoi(input)
-		if err != nil || idx < 0 || idx >= len(p.Hand) {
-			fmt.Println("❌ Invalid choice. Please enter a valid number or 'D'.")
-			continue
+func (lobby *Lobby) setNextPlayerTurn() {
+	idx := lobby.currentPlayerIndex
+	for {
+		idx = (idx + 1) % len(lobby.players)
+		if lobby.players[idx].IsAlive {
+			lobby.currentPlayerIndex = idx
+			return
 		}
+	}
+}
 
-		playedCard := p.Hand[idx]
+func (lobby *Lobby) getGameState(playerIdx int) GameState {
+	res := GameState{
+		playerId:       playerIdx,
+		remainingCards: len(lobby.deck),
+		turnState:      lobby.turnState,
+	}
+	for _, player := range lobby.players {
+		res.players = append(res.players, PlayerGameState{
+			cards:    len(player.Hand),
+			IsAlive:  player.IsAlive,
+			IsOnline: player.IsOnline,
+		})
+	}
+	return res
+}
 
-		success := true
-		endTurn := false
+func (lobby *Lobby) sendError(playerIdx int, err string) {
+	res := lobby.getGameState(playerIdx)
+	res.err = err
+	lobby.players[playerIdx].Send <- res
+}
 
-		switch playedCard {
-		case Skip:
-			fmt.Println("⏭️  You skipped your draw phase! Turn ends.")
-			endTurn = true
-		case Cat:
-			fmt.Println("🚫  You cannot play a cat card!")
-			success = false
-		case Defuse:
-			fmt.Println("🚫  You cannot play a defuse card!")
-			success = false
-		}
-
-		if success {
-			p.Hand = slices.Delete(p.Hand, idx, idx+1)
-		}
-
-		if endTurn {
-			break
-		}
+func (lobby *Lobby) broadcastGameState() {
+	for idx, player := range lobby.players {
+		player.Send <- lobby.getGameState(idx)
 	}
 }
 
@@ -257,10 +281,14 @@ func (lobby *Lobby) run() {
 			if lobby.inProgress {
 				joinReq.Result <- JoinResponse{
 					success: false,
+					error:   "Game in progress",
 				}
 			}
 			newPlayer := &Player{
-				Send: joinReq.Send,
+				Send:     joinReq.Send,
+				IsOnline: true,
+				IsAlive:  true,
+				Hand:     make([]Card, 0),
 			}
 			joinReq.Result <- JoinResponse{
 				success:  true,

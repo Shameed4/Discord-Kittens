@@ -48,7 +48,7 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lobby := new(Lobby)
+	lobby := NewLobby()
 	lobbies[req.Name] = lobby
 	go lobby.run()
 
@@ -73,6 +73,14 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// upgrade the connection
+	ws, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.Println("Upgrade error:", err)
+		return
+	}
+	defer ws.Close()
+
 	// request to join lobby
 	gameStateChan := make(chan GameState)
 	joinResultChan := make(chan JoinResponse)
@@ -84,23 +92,18 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	joinResponse := <-joinResultChan
 	if !joinResponse.success {
-		http.Error(w, "Lobby not found. Create it first.", http.StatusNotFound)
+		ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, joinResponse.error))
 		return
 	}
 	playerId := joinResponse.playerId
 
-	// upgrade the connection
-	ws, err := upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Println("Upgrade error:", err)
-		return
-	}
-	defer ws.Close()
-
 	// send messages to client
 	go func() {
 		for state := range gameStateChan {
-			ws.WriteJSON(state)
+			if err := ws.WriteJSON(state); err != nil {
+				log.Println("Write error:", err)
+				break
+			}
 		}
 	}()
 
@@ -112,7 +115,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		var action PlayerAction
-		json.Unmarshal(data, &action)
+		if err := json.Unmarshal(data, &action); err != nil {
+			log.Println("Player disconnected or read error")
+			break
+		}
 		action.playerId = playerId
 		lobby.ActionQueue <- action
 	}
@@ -127,4 +133,5 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 func main() {
 	http.HandleFunc("/lobby", handleCreateLobby)
 	http.HandleFunc("/ws", handleWebSocket)
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
