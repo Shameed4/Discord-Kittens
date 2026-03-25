@@ -238,6 +238,23 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) {
 		}
 		lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
 		lobby.setNextPlayerTurn()
+
+	case PlayCard:
+		if !isPlayerTurn {
+			lobby.sendError(playerId, "Not your turn")
+			return
+		}
+		if action.index < 0 || action.index >= len(player.Hand) {
+			lobby.sendError(playerId, "No card found at that index")
+			return
+		}
+		playedCard := player.Hand[action.index]
+		switch playedCard {
+		case Skip:
+			lobby.setNextPlayerTurn() // TODO: make this decrease attacks by 1 instead
+		default:
+			lobby.sendError(playerId, "Cannot play that card")
+		}
 	}
 
 	lobby.broadcastGameState()
