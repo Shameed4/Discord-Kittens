@@ -125,7 +125,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	quitAction := PlayerAction{
 		playerId:   playerId,
-		actionType: Quit,
+		actionType: Disconnect,
 	}
 	lobby.ActionQueue <- quitAction
 }
