@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -204,19 +205,17 @@ func (lobby *Lobby) startGame() {
 	fmt.Printf("\n--- Game Setup Complete! Deck has %d cards. ---\n", len(lobby.deck))
 }
 
-func (lobby *Lobby) takePlayerAction(action PlayerAction) {
+func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 	playerId := action.playerId
 	player := lobby.players[playerId]
 	isPlayerTurn := action.playerId == lobby.currentPlayerIndex
 	switch action.actionType {
 	case StartGame:
 		if lobby.inProgress {
-			lobby.sendError(playerId, "Cannot start lobby - Lobby already in progress")
-			return
+			return errors.New("Cannot start lobby - game already in progress")
 		}
 		if lobby.livingPlayers < 2 {
-			lobby.sendError(playerId, "Cannot start lobby - Not enough players")
-			return
+			return errors.New("Cannot start lobby - Not enough players")
 		}
 		lobby.startGame()
 
@@ -228,12 +227,10 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) {
 
 	case DrawCard:
 		if !isPlayerTurn {
-			lobby.sendError(action.playerId, "Not your turn")
-			return
+			return errors.New("Not your turn")
 		}
 		if lobby.turnState != Normal {
-			lobby.sendError(action.playerId, "Cannot pick up cards right now")
-			return
+			return errors.New("Cannot pick up cards right now")
 		}
 
 		drawn := lobby.drawCard()
@@ -249,36 +246,34 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) {
 
 	case PlaceKitten:
 		if !isPlayerTurn {
-			lobby.sendError(playerId, "Not your turn")
-			return
+			return errors.New("Not your turn")
 		}
 		newKittenPosition := action.index
 		if newKittenPosition < 0 || newKittenPosition > len(lobby.deck) {
-			lobby.sendError(playerId, "Invalid kitten position")
-			return
+			return errors.New("Invalid kitten position")
 		}
 		lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
 		lobby.setNextPlayerTurn()
 
 	case PlayCard:
 		if !isPlayerTurn {
-			lobby.sendError(playerId, "Not your turn")
-			return
+			return errors.New("Not your turn")
 		}
 		if action.index < 0 || action.index >= len(player.Hand) {
-			lobby.sendError(playerId, "No card found at that index")
-			return
+			return errors.New("No card found at that index")
 		}
+
 		playedCard := player.Hand[action.index]
+
 		switch playedCard {
 		case Skip:
 			lobby.setNextPlayerTurn() // TODO: make this decrease attacks by 1 instead
 		default:
-			lobby.sendError(playerId, "Cannot play that card")
+			return errors.New("Cannot play that card")
 		}
 	}
 
-	lobby.broadcastGameState()
+	return nil
 }
 
 func (lobby *Lobby) eliminatePlayer(playerId int) {
@@ -366,7 +361,11 @@ func (lobby *Lobby) run() {
 			lobby.broadcastGameState()
 
 		case actionReq := <-lobby.ActionQueue:
-			lobby.takePlayerAction(actionReq)
+			if err := lobby.takePlayerAction(actionReq); err != nil {
+				lobby.sendError(actionReq.playerId, err.Error())
+			} else {
+				lobby.broadcastGameState()
+			}
 		}
 	}
 }
