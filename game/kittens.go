@@ -244,6 +244,8 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			} else {
 				player.IsAlive = false
 			}
+		} else {
+			lobby.setNextPlayerTurn()
 		}
 
 	case PlaceKitten:
