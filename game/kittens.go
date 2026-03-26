@@ -363,6 +363,7 @@ func (lobby *Lobby) run() {
 			}
 			lobby.players = append(lobby.players, newPlayer)
 			lobby.livingPlayers += 1
+			lobby.broadcastGameState()
 
 		case actionReq := <-lobby.ActionQueue:
 			lobby.takePlayerAction(actionReq)
