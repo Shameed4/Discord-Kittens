@@ -257,6 +257,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			return errors.New("Invalid kitten position")
 		}
 		lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
+		lobby.turnState = Normal
 		lobby.setNextPlayerTurn()
 
 	case PlayCard:
