@@ -10,9 +10,10 @@ import (
 )
 
 const (
-	ExtraDefuses  = 2
-	CatMultiplier = 4
-	SkipMultipler = 2
+	ExtraDefuses           = 2
+	CatMultiplier          = 4
+	SkipMultiplier         = 2
+	SeeTheFutureMultiplier = 2
 )
 
 type Card int
@@ -22,6 +23,7 @@ const (
 	ExplodingKitten
 	Skip
 	Cat
+	SeeTheFuture
 )
 
 func (c Card) String() string {
@@ -34,6 +36,8 @@ func (c Card) String() string {
 		return "SKIP"
 	case Cat:
 		return "CAT"
+	case SeeTheFuture:
+		return "SEE_THE_FUTURE"
 	default:
 		return "UNKNOWN"
 	}
@@ -45,6 +49,7 @@ const (
 	Normal TurnState = iota
 	GameOver
 	AwaitingKittenPlacement
+	SeeingTheFuture
 	// TODO: add things like awaiting nope, awaiting alter the future, awaiting favor, awaiting 5 unique, etc
 )
 
@@ -56,6 +61,8 @@ func (t TurnState) String() string {
 		return "GAME_OVER"
 	case AwaitingKittenPlacement:
 		return "AWAITING_KITTEN_PLACEMENT"
+	case SeeingTheFuture:
+		return "SEEING_THE_FUTURE"
 	default:
 		return "UNKNOWN"
 	}
@@ -83,7 +90,8 @@ type GameState struct {
 	TurnState string            `json:"turnState"`
 	Hand      []string          `json:"hand"`
 
-	Err string `json:"err,omitempty"`
+	Future []string `json:"future,omitempty"` // for see the future
+	Err    string   `json:"err,omitempty"`
 }
 
 type JoinRequest struct {
@@ -156,7 +164,7 @@ func (lobby *Lobby) shuffleDeck() {
 	})
 }
 
-func (lobby *Lobby) drawCard() Card {
+func (lobby *Lobby) removeTopCard() Card {
 	if len(lobby.deck) == 0 {
 		fmt.Println("The deck is empty! (This shouldn't happen with correct kitten math)")
 		os.Exit(1)
@@ -177,8 +185,11 @@ func (lobby *Lobby) startGame() {
 	for i := 0; i < numPlayers*CatMultiplier; i++ {
 		safeDeck = append(safeDeck, Cat)
 	}
-	for i := 0; i < numPlayers*SkipMultipler; i++ {
+	for i := 0; i < numPlayers*SkipMultiplier; i++ {
 		safeDeck = append(safeDeck, Skip)
+	}
+	for i := 0; i < numPlayers*SeeTheFutureMultiplier; i++ {
+		safeDeck = append(safeDeck, SeeTheFuture)
 	}
 
 	// Put safe cards in the main deck and shuffle
@@ -189,7 +200,7 @@ func (lobby *Lobby) startGame() {
 	for _, p := range lobby.players {
 		p.Hand = append(p.Hand, Defuse)
 		for i := 0; i < 4; i++ {
-			p.Hand = append(p.Hand, lobby.drawCard())
+			p.Hand = append(p.Hand, lobby.removeTopCard())
 		}
 	}
 
@@ -231,11 +242,12 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		if !isPlayerTurn {
 			return errors.New("Not your turn")
 		}
-		if lobby.turnState != Normal {
+		if lobby.turnState != Normal && lobby.turnState != SeeingTheFuture {
 			return errors.New("Cannot pick up cards right now")
 		}
 
-		drawn := lobby.drawCard()
+		lobby.turnState = Normal // clear effects like seeing the future
+		drawn := lobby.removeTopCard()
 
 		if drawn == ExplodingKitten {
 			if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
@@ -245,6 +257,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 				player.IsAlive = false
 			}
 		} else {
+			player.Hand = append(player.Hand, drawn)
 			lobby.setNextPlayerTurn()
 		}
 
@@ -268,12 +281,15 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			return errors.New("No card found at that index")
 		}
 
+		lobby.turnState = Normal // clear effects like seeing the future
 		playedCard := player.Hand[action.index]
 		player.Hand = slices.Delete(player.Hand, action.index, action.index+1)
 
 		switch playedCard {
 		case Skip:
 			lobby.setNextPlayerTurn() // TODO: make this decrease attacks by 1 instead
+		case SeeTheFuture:
+			lobby.turnState = SeeingTheFuture
 		default:
 			return errors.New("Cannot play that card")
 		}
@@ -287,6 +303,7 @@ func (lobby *Lobby) eliminatePlayer(playerId int) {
 	lobby.players[playerId].IsAlive = false
 	if lobby.currentPlayerIndex == playerId {
 		lobby.setNextPlayerTurn()
+		lobby.turnState = Normal
 	}
 	if lobby.livingPlayers == 1 {
 		lobby.turnState = GameOver
@@ -314,11 +331,21 @@ func (lobby *Lobby) setNextPlayerTurn() {
 	}
 }
 
+func cardSliceToStrings(cards []Card) []string {
+	res := make([]string, len(cards))
+	for i, card := range cards {
+		res[i] = card.String()
+	}
+	return res
+}
+
 func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	player := lobby.players[playerIdx]
-	hand := make([]string, len(player.Hand))
-	for i, card := range player.Hand {
-		hand[i] = card.String()
+	hand := cardSliceToStrings(player.Hand)
+	var future []string = nil
+	if lobby.turnState == SeeingTheFuture && lobby.currentPlayerIndex == playerIdx {
+		count := min(3, len(player.Hand))
+		future = cardSliceToStrings(lobby.deck[:count])
 	}
 	res := GameState{
 		PlayerId:  playerIdx,
@@ -326,6 +353,8 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		DeckSize:  len(lobby.deck),
 		TurnState: lobby.turnState.String(),
 		Hand:      hand,
+
+		Future: future,
 	}
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{
