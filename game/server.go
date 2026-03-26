@@ -13,6 +13,11 @@ type CreateLobbyRequest struct {
 	Name string `json:"name"`
 }
 
+type ActionRequest struct {
+	ActionStr string `json:"actionStr"`
+	Index     int    `json:"index"`
+}
+
 var (
 	lobbies      = make(map[string]*Lobby)
 	lobbiesMutex sync.Mutex
@@ -114,10 +119,23 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			log.Println("Player disconnected or read error")
 			break
 		}
-		var action PlayerAction
-		if err := json.Unmarshal(data, &action); err != nil {
-			log.Println("Player disconnected or read error")
-			break
+		var actionRequest ActionRequest
+		if err := json.Unmarshal(data, &actionRequest); err != nil {
+			lobby.sendError(playerId, "Failed to parse request")
+			continue
+		}
+
+		actionType, ok := actionTypeNames[actionRequest.ActionStr]
+		if !ok {
+			lobby.sendError(playerId, "Invalid action string")
+			continue
+		}
+
+		var action = PlayerAction{
+			playerId:   playerId,
+			actionType: actionType,
+
+			index: actionRequest.Index,
 		}
 		action.playerId = playerId
 		lobby.ActionQueue <- action

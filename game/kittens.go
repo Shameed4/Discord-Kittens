@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"math/rand"
 	"os"
@@ -9,7 +8,12 @@ import (
 	"time"
 )
 
-// 1. Define the Card enum
+const (
+	ExtraDefuses  = 2
+	CatMultiplier = 4
+	SkipMultipler = 2
+)
+
 type Card int
 
 const (
@@ -19,28 +23,43 @@ const (
 	Cat
 )
 
-const (
-	ExtraDefuses  = 2
-	CatMultiplier = 4
-	SkipMultipler = 2
-)
-
 func (c Card) String() string {
 	switch c {
 	case Defuse:
-		return "🛡️ Defuse"
+		return "DEFUSE"
 	case ExplodingKitten:
-		return "💥 EXPLODING KITTEN"
+		return "EXPLODING_KITTEN"
 	case Skip:
-		return "⏭️  SKIP"
+		return "SKIP"
 	case Cat:
-		return "🐈 CAT"
+		return "CAT"
 	default:
 		return "UNKNOWN"
 	}
 }
 
-// 2. Define the Player
+type TurnState int
+
+const (
+	Normal TurnState = iota
+	GameOver
+	AwaitingKittenPlacement
+	// TODO: add things like awaiting nope, awaiting alter the future, awaiting favor, awaiting 5 unique, etc
+)
+
+func (t TurnState) String() string {
+	switch t {
+	case Normal:
+		return "NORMAL"
+	case GameOver:
+		return "GAME_OVER"
+	case AwaitingKittenPlacement:
+		return "AWAITING_KITTEN_PLACEMENT"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 type Player struct {
 	Hand     []Card
 	IsAlive  bool
@@ -50,18 +69,18 @@ type Player struct {
 }
 
 type PlayerGameState struct {
-	cards    int
-	IsAlive  bool
-	IsOnline bool
+	Cards    int  `json:"cards"`
+	IsAlive  bool `json:"isAlive"`
+	IsOnline bool `json:"isOnline"`
 }
 
 type GameState struct {
-	playerId       int
-	remainingCards int
-	players        []PlayerGameState
-	turnState      TurnState
+	PlayerId       int
+	RemainingCards int
+	Players        []PlayerGameState
+	TurnState      string
 
-	err string
+	Err string
 }
 
 type JoinRequest struct {
@@ -75,7 +94,7 @@ type JoinResponse struct {
 	playerId int
 }
 
-type ActionType = int
+type ActionType int
 
 const (
 	StartGame ActionType = iota
@@ -83,7 +102,17 @@ const (
 	DrawCard
 	PlaceKitten
 	Disconnect
+
+	Unknown
 )
+
+var actionTypeNames = map[string]ActionType{
+	"START_GAME":   StartGame,
+	"PLAY_CARD":    PlayCard,
+	"DRAW_CARD":    DrawCard,
+	"PLACE_KITTEN": PlaceKitten,
+	"DISCONNECT":   Disconnect,
+}
 
 type PlayerAction struct {
 	playerId   int
@@ -91,15 +120,6 @@ type PlayerAction struct {
 
 	index int // optional; used for placing kittens
 }
-
-type TurnState = int
-
-const (
-	Normal TurnState = iota
-	GameOver
-	AwaitingKittenPlacement
-	// TODO: add things like awaiting nope, awaiting alter the future, awaiting favor, awaiting 5 unique, etc
-)
 
 type Lobby struct {
 	deck               []Card
@@ -115,8 +135,7 @@ type Lobby struct {
 
 // Global state
 var (
-	scanner = bufio.NewScanner(os.Stdin)
-	rng     = rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
 )
 
 // --- Helper Functions ---
@@ -148,7 +167,7 @@ func (lobby *Lobby) drawCard() Card {
 // --- Setup & Game Loop ---
 
 func (lobby *Lobby) startGame() {
-	numPlayers := len(lobby.players)
+	numPlayers := lobby.livingPlayers
 	lobby.inProgress = true
 	// Create a pool of safe cards (Lots of Cats, some Skips)
 	var safeDeck []Card
@@ -193,9 +212,11 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) {
 	case StartGame:
 		if lobby.inProgress {
 			lobby.sendError(playerId, "Cannot start lobby - Lobby already in progress")
+			return
 		}
-		if len(lobby.players) < 2 {
+		if lobby.livingPlayers < 2 {
 			lobby.sendError(playerId, "Cannot start lobby - Not enough players")
+			return
 		}
 		lobby.startGame()
 
@@ -220,7 +241,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) {
 		if drawn == ExplodingKitten {
 			if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
 				player.Hand = append(player.Hand[:defuseIndex], player.Hand[defuseIndex+1:]...)
-				lobby.turnState = PlaceKitten
+				lobby.turnState = AwaitingKittenPlacement
 			} else {
 				player.IsAlive = false
 			}
@@ -294,13 +315,13 @@ func (lobby *Lobby) setNextPlayerTurn() {
 
 func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	res := GameState{
-		playerId:       playerIdx,
-		remainingCards: len(lobby.deck),
-		turnState:      lobby.turnState,
+		PlayerId:       playerIdx,
+		RemainingCards: len(lobby.deck),
+		TurnState:      lobby.turnState.String(),
 	}
 	for _, player := range lobby.players {
-		res.players = append(res.players, PlayerGameState{
-			cards:    len(player.Hand),
+		res.Players = append(res.Players, PlayerGameState{
+			Cards:    len(player.Hand),
 			IsAlive:  player.IsAlive,
 			IsOnline: player.IsOnline,
 		})
@@ -310,7 +331,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 
 func (lobby *Lobby) sendError(playerIdx int, err string) {
 	res := lobby.getGameState(playerIdx)
-	res.err = err
+	res.Err = err
 	lobby.players[playerIdx].Send <- res
 }
 
@@ -341,6 +362,7 @@ func (lobby *Lobby) run() {
 				playerId: len(lobby.players), // TODO: make this resistant to players exiting
 			}
 			lobby.players = append(lobby.players, newPlayer)
+			lobby.livingPlayers += 1
 
 		case actionReq := <-lobby.ActionQueue:
 			lobby.takePlayerAction(actionReq)
