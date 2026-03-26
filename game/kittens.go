@@ -239,7 +239,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 
 		if drawn == ExplodingKitten {
 			if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
-				player.Hand = append(player.Hand[:defuseIndex], player.Hand[defuseIndex+1:]...)
+				player.Hand = slices.Delete(player.Hand, defuseIndex, defuseIndex+1)
 				lobby.turnState = AwaitingKittenPlacement
 			} else {
 				player.IsAlive = false
@@ -269,6 +269,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		}
 
 		playedCard := player.Hand[action.index]
+		player.Hand = slices.Delete(player.Hand, action.index, action.index+1)
 
 		switch playedCard {
 		case Skip:
