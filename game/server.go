@@ -149,6 +149,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	lobby := NewLobby()
+	lobbies["test"] = lobby
+	go lobby.run()
+
 	http.HandleFunc("/lobby", handleCreateLobby)
 	http.HandleFunc("/ws", handleWebSocket)
 	log.Fatal(http.ListenAndServe(":8080", nil))
