@@ -70,18 +70,20 @@ type Player struct {
 }
 
 type PlayerGameState struct {
-	Cards    int  `json:"cards"`
-	IsAlive  bool `json:"isAlive"`
-	IsOnline bool `json:"isOnline"`
+	CardCount int  `json:"cardCount"`
+	IsAlive   bool `json:"isAlive"`
+	IsOnline  bool `json:"isOnline"`
 }
 
 type GameState struct {
-	PlayerId       int
-	RemainingCards int
-	Players        []PlayerGameState
-	TurnState      string
+	PlayerId  int               `json:"playerId"`
+	TurnId    int               `json:"turnId"`
+	DeckSize  int               `json:"deckSize"`
+	Players   []PlayerGameState `json:"players"`
+	TurnState string            `json:"turnState"`
+	Hand      []string          `json:"hand"`
 
-	Err string
+	Err string `json:"err,omitempty"`
 }
 
 type JoinRequest struct {
@@ -309,16 +311,23 @@ func (lobby *Lobby) setNextPlayerTurn() {
 }
 
 func (lobby *Lobby) getGameState(playerIdx int) GameState {
+	player := lobby.players[playerIdx]
+	hand := make([]string, len(player.Hand))
+	for i, card := range player.Hand {
+		hand[i] = card.String()
+	}
 	res := GameState{
-		PlayerId:       playerIdx,
-		RemainingCards: len(lobby.deck),
-		TurnState:      lobby.turnState.String(),
+		PlayerId:  playerIdx,
+		TurnId:    lobby.currentPlayerIndex,
+		DeckSize:  len(lobby.deck),
+		TurnState: lobby.turnState.String(),
+		Hand:      hand,
 	}
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{
-			Cards:    len(player.Hand),
-			IsAlive:  player.IsAlive,
-			IsOnline: player.IsOnline,
+			CardCount: len(player.Hand),
+			IsAlive:   player.IsAlive,
+			IsOnline:  player.IsOnline,
 		})
 	}
 	return res

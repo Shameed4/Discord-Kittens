@@ -14,7 +14,7 @@ type CreateLobbyRequest struct {
 }
 
 type ActionRequest struct {
-	ActionStr string `json:"actionStr"`
+	ActionStr string `json:"action"`
 	Index     int    `json:"index"`
 }
 
