@@ -1,9 +1,14 @@
-import './App.css'
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
+import HomePage from './pages/Home';
+import GamePage from './pages/Game';
 
-function App() {
+export default function App() {
   return (
-    <div className='text-red-500'>Hello world</div>
-  )
+    <MemoryRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/game" element={<GamePage />} />
+      </Routes>
+    </MemoryRouter>
+  );
 }
-
-export default App
