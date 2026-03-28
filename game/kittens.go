@@ -47,6 +47,7 @@ type TurnState int
 
 const (
 	Normal TurnState = iota
+	NotStarted
 	GameOver
 	AwaitingKittenPlacement
 	SeeingTheFuture
@@ -55,6 +56,8 @@ const (
 
 func (t TurnState) String() string {
 	switch t {
+	case NotStarted:
+		return "NOT_STARTED"
 	case Normal:
 		return "NORMAL"
 	case GameOver:
@@ -134,7 +137,6 @@ type Lobby struct {
 	deck               []Card
 	players            []*Player
 	currentPlayerIndex int
-	inProgress         bool
 	turnState          TurnState
 	livingPlayers      int
 
@@ -153,6 +155,7 @@ func NewLobby() *Lobby {
 		players:     make([]*Player, 0),
 		ActionQueue: make(chan PlayerAction),
 		JoinQueue:   make(chan JoinRequest),
+		turnState:   NotStarted,
 	}
 }
 
@@ -186,7 +189,7 @@ func (lobby *Lobby) startGame() error {
 		return errors.New("Cannot start lobby - Not enough players")
 	}
 	lobby.livingPlayers = numPlayers
-	lobby.inProgress = true
+	lobby.turnState = Normal
 
 	// Create a pool of safe cards (Lots of Cats, some Skips)
 	var safeDeck []Card
@@ -236,7 +239,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 	isPlayerTurn := action.playerId == lobby.currentPlayerIndex
 	switch action.actionType {
 	case StartGame:
-		if lobby.inProgress {
+		if lobby.inProgress() {
 			return errors.New("Cannot start lobby - game already in progress")
 		}
 		if err := lobby.startGame(); err != nil {
@@ -317,7 +320,7 @@ func (lobby *Lobby) eliminatePlayer(playerId int) {
 		lobby.setNextPlayerTurn()
 		lobby.turnState = Normal
 	}
-	if lobby.livingPlayers == 1 && lobby.inProgress {
+	if lobby.livingPlayers == 1 && lobby.inProgress() {
 		lobby.turnState = GameOver
 	}
 }
@@ -399,11 +402,15 @@ func (lobby *Lobby) broadcastGameState() {
 	}
 }
 
+func (lobby *Lobby) inProgress() bool {
+	return lobby.turnState != NotStarted && lobby.turnState != GameOver
+}
+
 func (lobby *Lobby) run() {
 	for {
 		select {
 		case joinReq := <-lobby.JoinQueue:
-			if lobby.inProgress {
+			if lobby.inProgress() {
 				joinReq.Result <- JoinResponse{
 					success: false,
 					error:   "Game in progress",
