@@ -113,8 +113,6 @@ const (
 	DrawCard
 	PlaceKitten
 	Disconnect
-
-	Unknown
 )
 
 var actionTypeNames = map[string]ActionType{
@@ -178,8 +176,15 @@ func (lobby *Lobby) removeTopCard() Card {
 // --- Setup & Game Loop ---
 
 func (lobby *Lobby) startGame() {
-	numPlayers := lobby.livingPlayers
+	numPlayers := 0
+	for _, player := range lobby.players {
+		if player.IsOnline {
+			numPlayers += 1
+		}
+	}
+	lobby.livingPlayers = numPlayers
 	lobby.inProgress = true
+
 	// Create a pool of safe cards (Lots of Cats, some Skips)
 	var safeDeck []Card
 	for i := 0; i < numPlayers*CatMultiplier; i++ {
@@ -198,8 +203,11 @@ func (lobby *Lobby) startGame() {
 
 	// Deal 1 diffuse + 4 starting cards to each player
 	for _, p := range lobby.players {
+		if !p.IsOnline {
+			continue
+		}
 		p.Hand = append(p.Hand, Defuse)
-		for i := 0; i < 4; i++ {
+		for range 4 {
 			p.Hand = append(p.Hand, lobby.removeTopCard())
 		}
 	}
@@ -305,7 +313,7 @@ func (lobby *Lobby) eliminatePlayer(playerId int) {
 		lobby.setNextPlayerTurn()
 		lobby.turnState = Normal
 	}
-	if lobby.livingPlayers == 1 {
+	if lobby.livingPlayers == 1 && lobby.inProgress {
 		lobby.turnState = GameOver
 	}
 }
@@ -321,6 +329,9 @@ func (lobby *Lobby) disconnectPlayer(playerId int) {
 }
 
 func (lobby *Lobby) setNextPlayerTurn() {
+	if lobby.livingPlayers == 0 {
+		return // Safety valve to prevent infinite loops
+	}
 	idx := lobby.currentPlayerIndex
 	for {
 		idx = (idx + 1) % len(lobby.players)
@@ -367,14 +378,20 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 }
 
 func (lobby *Lobby) sendError(playerIdx int, err string) {
+	player := lobby.players[playerIdx]
+	if !player.IsOnline {
+		return
+	}
 	res := lobby.getGameState(playerIdx)
 	res.Err = err
-	lobby.players[playerIdx].Send <- res
+	player.Send <- res
 }
 
 func (lobby *Lobby) broadcastGameState() {
 	for playerIdx, player := range lobby.players {
-		player.Send <- lobby.getGameState(playerIdx)
+		if player.IsOnline {
+			player.Send <- lobby.getGameState(playerIdx)
+		}
 	}
 }
 
@@ -399,7 +416,6 @@ func (lobby *Lobby) run() {
 				playerId: len(lobby.players), // TODO: make this resistant to players exiting
 			}
 			lobby.players = append(lobby.players, newPlayer)
-			lobby.livingPlayers += 1
 			lobby.broadcastGameState()
 
 		case actionReq := <-lobby.ActionQueue:

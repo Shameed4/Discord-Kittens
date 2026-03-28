@@ -28,6 +28,7 @@ var (
 )
 
 func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
+	log.Println("Requested to create lobby")
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -63,6 +64,7 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	log.Println("New request to join lobby")
 	lobbyName := r.URL.Query().Get("lobby")
 	if lobbyName == "" {
 		http.Error(w, "Missing lobby parameter", http.StatusBadRequest)
@@ -101,6 +103,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	playerId := joinResponse.playerId
+	log.Printf("Player %d successfully joined lobby %s", playerId, lobbyName)
 
 	// send messages to client
 	go func() {
@@ -116,7 +119,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, data, err := ws.ReadMessage()
 		if err != nil {
-			log.Println("Player disconnected or read error")
+			log.Printf("Player %d disconnected lobby %s or read error ", playerId, lobbyName)
 			break
 		}
 		var actionRequest ActionRequest
@@ -125,10 +128,16 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
+		log.Printf("Action request %+v", actionRequest)
 		actionType, ok := actionTypeNames[actionRequest.ActionStr]
 		if !ok {
 			lobby.sendError(playerId, "Invalid action string")
 			continue
+		}
+
+		if actionType == Disconnect {
+			ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "disconnecting"))
+			break
 		}
 
 		var action = PlayerAction{
