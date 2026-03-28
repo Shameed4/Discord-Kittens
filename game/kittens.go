@@ -175,12 +175,15 @@ func (lobby *Lobby) removeTopCard() Card {
 
 // --- Setup & Game Loop ---
 
-func (lobby *Lobby) startGame() {
+func (lobby *Lobby) startGame() error {
 	numPlayers := 0
 	for _, player := range lobby.players {
 		if player.IsOnline {
 			numPlayers += 1
 		}
+	}
+	if numPlayers < 2 {
+		return errors.New("Cannot start lobby - Not enough players")
 	}
 	lobby.livingPlayers = numPlayers
 	lobby.inProgress = true
@@ -224,6 +227,7 @@ func (lobby *Lobby) startGame() {
 	// Final shuffle
 	lobby.shuffleDeck()
 	fmt.Printf("\n--- Game Setup Complete! Deck has %d cards. ---\n", len(lobby.deck))
+	return nil
 }
 
 func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
@@ -235,8 +239,8 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		if lobby.inProgress {
 			return errors.New("Cannot start lobby - game already in progress")
 		}
-		if lobby.livingPlayers < 2 {
-			return errors.New("Cannot start lobby - Not enough players")
+		if err := lobby.startGame(); err != nil {
+			return err
 		}
 		lobby.startGame()
 
