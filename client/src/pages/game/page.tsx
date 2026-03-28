@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import type { GameState } from '../models/game-state';
-import { ConnectionStatus } from '../models/connection-status';
+import type { GameState } from '../../models/game-state';
+import { ConnectionStatus } from '../../models/connection-status';
+import type { ActionRequest } from '../../models/player-action';
 
 export default function GamePage() {
   const navigate = useNavigate();
@@ -54,20 +55,31 @@ export default function GamePage() {
     };
   }, [lobbyName, navigate]);
 
+  function sendAction(state: ActionRequest) {
+    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+      ws.current.send(JSON.stringify(state));
+    }
+  }
+
   const handleLeave = () => {
     navigate('/');
   };
 
-  const handleClick = () => {
+  const startGame = () => {
     // 3. Access the socket using ws.current
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      ws.current.send('click');
-    }
+    sendAction({ action: 'START_GAME' });
   };
 
   return (
     <div className="flex flex-col">
       <h2>{connectionStatus}</h2>
+      {gameState != null && (
+        <div className='flex gap-2'>
+          {gameState.players.map((p) => (
+            <div className="bg-red-500 p-5"></div>
+          ))}
+        </div>
+      )}
       <div>{JSON.stringify(gameState)}</div>
     </div>
   );

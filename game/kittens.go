@@ -73,6 +73,7 @@ func (t TurnState) String() string {
 
 type Player struct {
 	Hand     []Card
+	Id       int
 	IsAlive  bool
 	IsOnline bool
 
@@ -80,6 +81,7 @@ type Player struct {
 }
 
 type PlayerGameState struct {
+	Id        int  `json:"id"`
 	CardCount int  `json:"cardCount"`
 	IsAlive   bool `json:"isAlive"`
 	IsOnline  bool `json:"isOnline"`
@@ -376,6 +378,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	}
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{
+			Id:        player.Id,
 			CardCount: len(player.Hand),
 			IsAlive:   player.IsAlive,
 			IsOnline:  player.IsOnline,
@@ -416,7 +419,9 @@ func (lobby *Lobby) run() {
 					error:   "Game in progress",
 				}
 			}
+			newId := len(lobby.players)
 			newPlayer := &Player{
+				Id:       newId,
 				Send:     joinReq.Send,
 				IsOnline: true,
 				IsAlive:  true,
@@ -424,7 +429,7 @@ func (lobby *Lobby) run() {
 			}
 			joinReq.Result <- JoinResponse{
 				success:  true,
-				playerId: len(lobby.players), // TODO: make this resistant to players exiting
+				playerId: newId, // TODO: make this resistant to players exiting
 			}
 			lobby.players = append(lobby.players, newPlayer)
 			lobby.broadcastGameState()

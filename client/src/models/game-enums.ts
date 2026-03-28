@@ -8,6 +8,7 @@ export const CardType = {
 export type CardType = (typeof CardType)[keyof typeof CardType];
 
 export const TurnStateType = {
+  NotStarted: 'NOT_STARTED',
   Normal: 'NORMAL',
   GameOver: 'GAME_OVER',
   AwaitingKittenPlacement: 'AWAITING_KITTEN_PLACEMENT',
