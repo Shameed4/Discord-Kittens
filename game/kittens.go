@@ -256,11 +256,14 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		lobby.disconnectPlayer(playerId)
 
 	case DrawCard:
+		if !lobby.inProgress() {
+			return errors.New("Cannot draw card - Game not in progress")
+		}
 		if !isPlayerTurn {
-			return errors.New("Not your turn")
+			return errors.New("Cannot draw card - Not your turn")
 		}
 		if lobby.turnState != Normal && lobby.turnState != SeeingTheFuture {
-			return errors.New("Cannot pick up cards right now")
+			return errors.New("Cannot draw card - Cannot pick up cards right now")
 		}
 
 		lobby.turnState = Normal // clear effects like seeing the future
@@ -280,7 +283,10 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 
 	case PlaceKitten:
 		if !isPlayerTurn {
-			return errors.New("Not your turn")
+			return errors.New("Cannot place kitten - Not your turn")
+		}
+		if lobby.turnState != AwaitingKittenPlacement {
+			return errors.New("Cannot place kitten - You did not pick up a kitten")
 		}
 		newKittenPosition := action.index
 		if newKittenPosition < 0 || newKittenPosition > len(lobby.deck) {
@@ -291,11 +297,17 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		lobby.setNextPlayerTurn()
 
 	case PlayCard:
+		if !lobby.inProgress() {
+			return errors.New("Cannot play card - Game not in progress")
+		}
 		if !isPlayerTurn {
-			return errors.New("Not your turn")
+			return errors.New("Cannot play card - Not your turn")
+		}
+		if lobby.turnState == AwaitingKittenPlacement {
+			return errors.New("Cannot play card - You must place your kitten down first")
 		}
 		if action.index < 0 || action.index >= len(player.Hand) {
-			return errors.New("No card found at that index")
+			return errors.New("Cannot play card - No card found at that index")
 		}
 
 		lobby.turnState = Normal // clear effects like seeing the future
