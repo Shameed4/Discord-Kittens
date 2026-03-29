@@ -248,7 +248,6 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		if err := lobby.startGame(); err != nil {
 			return err
 		}
-		lobby.startGame()
 
 	case Disconnect:
 		if !player.IsOnline {
