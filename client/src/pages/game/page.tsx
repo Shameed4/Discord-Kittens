@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import type { GameState } from '../../models/game-state';
 import { ConnectionStatus } from '../../models/connection-status';
 import type { ActionRequest } from '../../models/player-action';
+import PlayerCard from './components/PlayerCard';
 
 export default function GamePage() {
   const navigate = useNavigate();
@@ -72,15 +73,9 @@ export default function GamePage() {
 
   return (
     <div className="flex flex-col">
-      <h2>{connectionStatus}</h2>
-      {gameState != null && (
-        <div className='flex gap-2'>
-          {gameState.players.map((p) => (
-            <div className="bg-red-500 p-5"></div>
-          ))}
-        </div>
-      )}
-      <div>{JSON.stringify(gameState)}</div>
+      {gameState != null && gameState.players.map(p => (
+        <PlayerCard playerState={p} gameState={gameState} />
+      ))}
     </div>
-  );
+  )
 }

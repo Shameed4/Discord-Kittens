@@ -88,12 +88,13 @@ type PlayerGameState struct {
 }
 
 type GameState struct {
-	PlayerId  int               `json:"playerId"`
-	TurnId    int               `json:"turnId"`
-	DeckSize  int               `json:"deckSize"`
-	Players   []PlayerGameState `json:"players"`
-	TurnState string            `json:"turnState"`
-	Hand      []string          `json:"hand"`
+	PlayerId   int               `json:"playerId"`
+	TurnId     int               `json:"turnId"`
+	DeckSize   int               `json:"deckSize"`
+	Players    []PlayerGameState `json:"players"`
+	TurnState  string            `json:"turnState"`
+	Hand       []string          `json:"hand"`
+	InProgress bool              `json:"inProgress"`
 
 	Future []string `json:"future,omitempty"` // for see the future
 	Err    string   `json:"err,omitempty"`
@@ -368,11 +369,12 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		future = cardSliceToStrings(lobby.deck[:count])
 	}
 	res := GameState{
-		PlayerId:  playerIdx,
-		TurnId:    lobby.currentPlayerIndex,
-		DeckSize:  len(lobby.deck),
-		TurnState: lobby.turnState.String(),
-		Hand:      hand,
+		PlayerId:   playerIdx,
+		TurnId:     lobby.currentPlayerIndex,
+		DeckSize:   len(lobby.deck),
+		TurnState:  lobby.turnState.String(),
+		Hand:       hand,
+		InProgress: lobby.inProgress(),
 
 		Future: future,
 	}

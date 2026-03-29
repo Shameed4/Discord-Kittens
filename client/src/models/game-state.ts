@@ -7,6 +7,7 @@ export interface GameState {
   players: PlayerState[];
   turnState: TurnStateType;
   hand: CardType[];
+  inProgress: boolean
 
   future?: CardType[3];
   err?: string;
