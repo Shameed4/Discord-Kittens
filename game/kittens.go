@@ -16,6 +16,7 @@ const (
 	SeeTheFutureMultiplier   = 2
 	AlterTheFutureMultiplier = 2
 	AttackMultiplier         = 2
+	TargetedAttackMultiplier = 2
 )
 
 type Card int
@@ -42,7 +43,7 @@ func (c Card) String() string {
 	case Attack:
 		return "ATTACK"
 	case TargetedAttack:
-		return "TARGETTED_ATTACK"
+		return "TARGETED_ATTACK"
 	case Cat:
 		return "CAT"
 	case SeeTheFuture:
@@ -152,8 +153,10 @@ type PlayerAction struct {
 	actionType ActionType
 
 	// optional fields
-	index   int   // for placing kittens
-	indices []int // for altering the future
+	placeKittenIndex int   // for placing kittens
+	useCardIndex     int   // card that you place
+	alterFutureOrder []int // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
+	targetedPlayer   int   // player being targeted
 }
 
 type Lobby struct {
@@ -233,6 +236,9 @@ func (lobby *Lobby) startGame() error {
 	for i := 0; i < numPlayers*AttackMultiplier; i++ {
 		safeDeck = append(safeDeck, Attack)
 	}
+	for i := 0; i < numPlayers*TargetedAttackMultiplier; i++ {
+		safeDeck = append(safeDeck, TargetedAttack)
+	}
 
 	// Put safe cards in the main deck and shuffle
 	lobby.deck = safeDeck
@@ -307,7 +313,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		if err := lobby.assertTurnAndState([]TurnState{AwaitingKittenPlacement}, isPlayerTurn, "place kitten"); err != nil {
 			return err
 		}
-		newKittenPosition := action.index
+		newKittenPosition := action.placeKittenIndex
 		if newKittenPosition < 0 || newKittenPosition > len(lobby.deck) {
 			return errors.New("Invalid kitten position")
 		}
@@ -319,42 +325,51 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "play card"); err != nil {
 			return err
 		}
-		if action.index < 0 || action.index >= len(player.Hand) {
+		if action.useCardIndex < 0 || action.useCardIndex >= len(player.Hand) {
 			return errors.New("Cannot play card - No card found at that index")
 		}
 
-		lobby.turnState = Normal // clear effects like seeing the future
-		playedCard := player.Hand[action.index]
-		player.Hand = slices.Delete(player.Hand, action.index, action.index+1)
+		playedCard := player.Hand[action.useCardIndex]
 
 		switch playedCard {
 		case Skip:
+			lobby.turnState = Normal
 			lobby.decreaseTurns()
 		case SeeTheFuture:
 			lobby.turnState = SeeingTheFuture
 		case AlterTheFuture:
 			lobby.turnState = AlteringTheFuture
 		case Attack:
+			lobby.turnState = Normal
 			lobby.setNextPlayerTurn(true)
+		case TargetedAttack:
+			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
+				return err
+			} else {
+				lobby.turnState = Normal
+				lobby.setPlayerTurn(true, action.targetedPlayer)
+			}
 		default:
 			return errors.New("Cannot play that card")
 		}
+
+		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
 
 	case AlterFuture:
 		if err := lobby.assertTurnAndState([]TurnState{AlteringTheFuture}, isPlayerTurn, "alter future"); err != nil {
 			return err
 		}
 		alterSize := min(3, len(lobby.deck))
-		if len(action.indices) != alterSize {
-			return fmt.Errorf("Expected indices to have length %d, got %d", alterSize, len(action.indices))
+		if len(action.alterFutureOrder) != alterSize {
+			return fmt.Errorf("Expected indices to have length %d, got %d", alterSize, len(action.alterFutureOrder))
 		}
-		for i := range action.indices {
-			if !slices.Contains(action.indices, i) {
+		for i := range action.alterFutureOrder {
+			if !slices.Contains(action.alterFutureOrder, i) {
 				return fmt.Errorf("Invalid indices list - missing value %d", i)
 			}
 		}
 		buffer := make([]Card, alterSize)
-		for newIndex, oldIndex := range action.indices {
+		for newIndex, oldIndex := range action.alterFutureOrder {
 			buffer[newIndex] = lobby.deck[oldIndex]
 		}
 		copy(lobby.deck, buffer)
@@ -377,6 +392,15 @@ func (lobby *Lobby) assertTurnAndState(validStates []TurnState, isPlayerTurn boo
 	}
 	if !isPlayerTurn {
 		return errors.New("Cannot " + action + " - Not your turn")
+	}
+	return nil
+}
+
+func (lobby *Lobby) assertPlayerExistsAndAlive(playerId int) error {
+	if playerId < 0 || playerId >= len(lobby.players) {
+		return errors.New("Player does not exist")
+	} else if !lobby.players[playerId].IsAlive {
+		return errors.New("Player must be alive")
 	}
 	return nil
 }
@@ -411,10 +435,15 @@ func (lobby *Lobby) setNextPlayerTurn(attack bool) {
 	for {
 		idx = (idx + 1) % len(lobby.players)
 		if lobby.players[idx].IsAlive {
-			lobby.currentPlayerIndex = idx
-			break
+			lobby.setPlayerTurn(attack, idx)
+			return
 		}
 	}
+}
+
+func (lobby *Lobby) setPlayerTurn(attack bool, playerIdx int) {
+	lobby.currentPlayerIndex = playerIdx
+
 	if !attack {
 		lobby.turnsToTake = 1
 		lobby.underAttack = false

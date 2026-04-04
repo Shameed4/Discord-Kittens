@@ -15,7 +15,12 @@ type CreateLobbyRequest struct {
 
 type ActionRequest struct {
 	ActionStr string `json:"action"`
-	Index     int    `json:"index"`
+
+	// optional fields
+	PlaceKittenIndex int   `json:"placeKittenIndex"` // for placing kittens
+	UseCardIndex     int   `json:"useCardIndex"`     // card that you place
+	AlterFutureOrder []int `json:"alterFutureOrder"` // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
+	TargetedPlayer   int   `json:"targetedPlayer"`   // player being targeted
 }
 
 var (
@@ -144,9 +149,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			playerId:   playerId,
 			actionType: actionType,
 
-			index: actionRequest.Index,
+			placeKittenIndex: actionRequest.PlaceKittenIndex,
+			useCardIndex:     actionRequest.UseCardIndex,
+			alterFutureOrder: actionRequest.AlterFutureOrder,
+			targetedPlayer:   actionRequest.TargetedPlayer,
 		}
-		action.playerId = playerId
 		lobby.ActionQueue <- action
 	}
 
