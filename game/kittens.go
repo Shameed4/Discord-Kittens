@@ -543,7 +543,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	hand := cardSliceToStrings(player.Hand)
 	var future []string = nil
 	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && lobby.currentPlayerIndex == playerIdx {
-		count := min(3, len(player.Hand))
+		count := min(3, len(lobby.deck))
 		future = cardSliceToStrings(lobby.deck[:count])
 	}
 	res := GameState{
