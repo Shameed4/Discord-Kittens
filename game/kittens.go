@@ -19,6 +19,7 @@ const (
 	TargetedAttackMultiplier = 2
 	ShuffleMultiplier        = 2
 	DrawFromBottomMultiplier = 2
+	FavorMultiplier          = 2
 )
 
 type Card int
@@ -34,6 +35,7 @@ const (
 	AlterTheFuture
 	Shuffle
 	DrawFromBottom
+	Favor
 )
 
 func (c Card) String() string {
@@ -58,6 +60,8 @@ func (c Card) String() string {
 		return "SHUFFLE"
 	case DrawFromBottom:
 		return "DRAW_FROM_BOTTOM"
+	case Favor:
+		return "FAVOR"
 	default:
 		return "UNKNOWN"
 	}
@@ -72,6 +76,7 @@ const (
 	AwaitingKittenPlacement
 	SeeingTheFuture
 	AlteringTheFuture
+	AwaitingFavor
 	// TODO: add things like awaiting nope, awaiting favor, awaiting 5 unique, etc
 )
 
@@ -89,6 +94,8 @@ func (t TurnState) String() string {
 		return "SEEING_THE_FUTURE"
 	case AlteringTheFuture:
 		return "ALTERING_THE_FUTURE"
+	case AwaitingFavor:
+		return "AWAITING_FAVOR"
 	default:
 		return "UNKNOWN"
 	}
@@ -121,8 +128,9 @@ type GameState struct {
 	UnderAttack bool              `json:"underAttack"`
 	TurnsToTake int               `json:"turnsToTake"`
 
-	Future []string `json:"future,omitempty"` // for see/alter the future
-	Err    string   `json:"err,omitempty"`
+	Future         []string `json:"future,omitempty"` // for see/alter the future
+	TargetedPlayer int      `json:"targetedPlayer"`   // for actions that require another player's response
+	Err            string   `json:"err,omitempty"`
 }
 
 type JoinRequest struct {
@@ -145,6 +153,7 @@ const (
 	PlaceKitten
 	Disconnect
 	AlterFuture
+	GiveFavor
 )
 
 var actionTypeNames = map[string]ActionType{
@@ -175,6 +184,8 @@ type Lobby struct {
 	livingPlayers      int
 	turnsToTake        int
 	underAttack        bool
+
+	targetedPlayer int // only relevant for cards like favor
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
@@ -265,6 +276,9 @@ func (lobby *Lobby) startGame() error {
 	for i := 0; i < numPlayers*DrawFromBottomMultiplier; i++ {
 		safeDeck = append(safeDeck, DrawFromBottom)
 	}
+	for i := 0; i < numPlayers*FavorMultiplier; i++ {
+		safeDeck = append(safeDeck, Favor)
+	}
 
 	// Put safe cards in the main deck and shuffle
 	lobby.deck = safeDeck
@@ -347,10 +361,13 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		playedCard := player.Hand[action.useCardIndex]
 
 		// validate before we take the card away
-		if playedCard == TargetedAttack {
+		if playedCard == TargetedAttack || playedCard == Favor {
 			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
 				return err
 			}
+		}
+		if playedCard == Favor && len(lobby.players[action.targetedPlayer].Hand) == 0 {
+			return errors.New("Cannot ask a favor from a player without cards!")
 		}
 
 		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
@@ -376,6 +393,9 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			lobby.turnState = Normal
 			drawn := lobby.removeBottomCard()
 			lobby.resolveDrawnCard(player, drawn)
+		case Favor:
+			lobby.turnState = AwaitingFavor
+			lobby.targetedPlayer = action.targetedPlayer
 		default:
 			return errors.New("Cannot play that card")
 		}
@@ -399,8 +419,21 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		}
 		copy(lobby.deck, buffer)
 		lobby.turnState = Normal
-	}
 
+	case GiveFavor:
+		if lobby.turnState != AwaitingFavor || lobby.targetedPlayer != playerId {
+			return errors.New("Must be the target of a favor request")
+		}
+		if action.useCardIndex < 0 || action.useCardIndex >= len(player.Hand) {
+			return errors.New("Given card is out of bounds")
+		}
+
+		lobby.turnState = Normal
+		transferredCard := player.Hand[action.useCardIndex]
+		requester := lobby.players[lobby.currentPlayerIndex]
+		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
+		requester.Hand = append(requester.Hand, transferredCard)
+	}
 	return nil
 }
 
@@ -523,7 +556,8 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		UnderAttack: lobby.underAttack,
 		TurnsToTake: lobby.turnsToTake,
 
-		Future: future,
+		Future:         future,
+		TargetedPlayer: lobby.targetedPlayer,
 	}
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{
