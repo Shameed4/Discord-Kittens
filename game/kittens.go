@@ -17,6 +17,8 @@ const (
 	AlterTheFutureMultiplier = 2
 	AttackMultiplier         = 2
 	TargetedAttackMultiplier = 2
+	ShuffleMultiplier        = 2
+	DrawFromBottomMultiplier = 2
 )
 
 type Card int
@@ -256,6 +258,12 @@ func (lobby *Lobby) startGame() error {
 	}
 	for i := 0; i < numPlayers*TargetedAttackMultiplier; i++ {
 		safeDeck = append(safeDeck, TargetedAttack)
+	}
+	for i := 0; i < numPlayers*ShuffleMultiplier; i++ {
+		safeDeck = append(safeDeck, Shuffle)
+	}
+	for i := 0; i < numPlayers*DrawFromBottomMultiplier; i++ {
+		safeDeck = append(safeDeck, DrawFromBottom)
 	}
 
 	// Put safe cards in the main deck and shuffle
