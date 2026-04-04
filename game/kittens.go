@@ -30,6 +30,8 @@ const (
 	Cat
 	SeeTheFuture
 	AlterTheFuture
+	Shuffle
+	DrawFromBottom
 )
 
 func (c Card) String() string {
@@ -50,6 +52,10 @@ func (c Card) String() string {
 		return "SEE_THE_FUTURE"
 	case AlterTheFuture:
 		return "ALTER_THE_FUTURE"
+	case Shuffle:
+		return "SHUFFLE"
+	case DrawFromBottom:
+		return "DRAW_FROM_BOTTOM"
 	default:
 		return "UNKNOWN"
 	}
@@ -204,6 +210,18 @@ func (lobby *Lobby) removeTopCard() Card {
 	return drawn
 }
 
+func (lobby *Lobby) removeBottomCard() Card {
+	if len(lobby.deck) == 0 {
+		fmt.Println("The deck is empty!")
+		os.Exit(1)
+	}
+	// Pop the bottom card
+	lastIdx := len(lobby.deck) - 1
+	drawn := lobby.deck[lastIdx]
+	lobby.deck = lobby.deck[:lastIdx]
+	return drawn
+}
+
 // --- Setup & Game Loop ---
 
 func (lobby *Lobby) startGame() error {
@@ -296,18 +314,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 
 		lobby.turnState = Normal // clear effects like seeing the future
 		drawn := lobby.removeTopCard()
-
-		if drawn == ExplodingKitten {
-			if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
-				player.Hand = slices.Delete(player.Hand, defuseIndex, defuseIndex+1)
-				lobby.turnState = AwaitingKittenPlacement
-			} else {
-				player.IsAlive = false
-			}
-		} else {
-			player.Hand = append(player.Hand, drawn)
-			lobby.decreaseTurns()
-		}
+		lobby.resolveDrawnCard(player, drawn)
 
 	case PlaceKitten:
 		if err := lobby.assertTurnAndState([]TurnState{AwaitingKittenPlacement}, isPlayerTurn, "place kitten"); err != nil {
@@ -331,6 +338,15 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 
 		playedCard := player.Hand[action.useCardIndex]
 
+		// validate before we take the card away
+		if playedCard == TargetedAttack {
+			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
+				return err
+			}
+		}
+
+		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
+
 		switch playedCard {
 		case Skip:
 			lobby.turnState = Normal
@@ -343,17 +359,18 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			lobby.turnState = Normal
 			lobby.setNextPlayerTurn(true)
 		case TargetedAttack:
-			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
-				return err
-			} else {
-				lobby.turnState = Normal
-				lobby.setPlayerTurn(true, action.targetedPlayer)
-			}
+			lobby.turnState = Normal
+			lobby.setPlayerTurn(true, action.targetedPlayer)
+		case Shuffle:
+			lobby.turnState = Normal
+			lobby.shuffleDeck()
+		case DrawFromBottom:
+			lobby.turnState = Normal
+			drawn := lobby.removeBottomCard()
+			lobby.resolveDrawnCard(player, drawn)
 		default:
 			return errors.New("Cannot play that card")
 		}
-
-		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
 
 	case AlterFuture:
 		if err := lobby.assertTurnAndState([]TurnState{AlteringTheFuture}, isPlayerTurn, "alter future"); err != nil {
@@ -377,6 +394,20 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 	}
 
 	return nil
+}
+
+func (lobby *Lobby) resolveDrawnCard(player *Player, drawn Card) {
+	if drawn == ExplodingKitten {
+		if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
+			player.Hand = slices.Delete(player.Hand, defuseIndex, defuseIndex+1)
+			lobby.turnState = AwaitingKittenPlacement
+		} else {
+			player.IsAlive = false
+		}
+	} else {
+		player.Hand = append(player.Hand, drawn)
+		lobby.decreaseTurns()
+	}
 }
 
 func (lobby *Lobby) decreaseTurns() {
