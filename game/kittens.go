@@ -10,10 +10,11 @@ import (
 )
 
 const (
-	ExtraDefuses           = 2
-	CatMultiplier          = 4
-	SkipMultiplier         = 2
-	SeeTheFutureMultiplier = 2
+	ExtraDefuses             = 2
+	CatMultiplier            = 4
+	SkipMultiplier           = 2
+	SeeTheFutureMultiplier   = 2
+	AlterTheFutureMultiplier = 2
 )
 
 type Card int
@@ -24,6 +25,7 @@ const (
 	Skip
 	Cat
 	SeeTheFuture
+	AlterTheFuture
 )
 
 func (c Card) String() string {
@@ -38,6 +40,8 @@ func (c Card) String() string {
 		return "CAT"
 	case SeeTheFuture:
 		return "SEE_THE_FUTURE"
+	case AlterTheFuture:
+		return "ALTER_THE_FUTURE"
 	default:
 		return "UNKNOWN"
 	}
@@ -51,7 +55,8 @@ const (
 	GameOver
 	AwaitingKittenPlacement
 	SeeingTheFuture
-	// TODO: add things like awaiting nope, awaiting alter the future, awaiting favor, awaiting 5 unique, etc
+	AlteringTheFuture
+	// TODO: add things like awaiting nope, awaiting favor, awaiting 5 unique, etc
 )
 
 func (t TurnState) String() string {
@@ -66,6 +71,8 @@ func (t TurnState) String() string {
 		return "AWAITING_KITTEN_PLACEMENT"
 	case SeeingTheFuture:
 		return "SEEING_THE_FUTURE"
+	case AlteringTheFuture:
+		return "ALTERING_THE_FUTURE"
 	default:
 		return "UNKNOWN"
 	}
@@ -96,7 +103,7 @@ type GameState struct {
 	Hand       []string          `json:"hand"`
 	InProgress bool              `json:"inProgress"`
 
-	Future []string `json:"future,omitempty"` // for see the future
+	Future []string `json:"future,omitempty"` // for see/alter the future
 	Err    string   `json:"err,omitempty"`
 }
 
@@ -119,6 +126,7 @@ const (
 	DrawCard
 	PlaceKitten
 	Disconnect
+	AlterFuture
 )
 
 var actionTypeNames = map[string]ActionType{
@@ -127,13 +135,16 @@ var actionTypeNames = map[string]ActionType{
 	"DRAW_CARD":    DrawCard,
 	"PLACE_KITTEN": PlaceKitten,
 	"DISCONNECT":   Disconnect,
+	"ALTER_FUTURE": AlterFuture,
 }
 
 type PlayerAction struct {
 	playerId   int
 	actionType ActionType
 
-	index int // optional; used for placing kittens
+	// optional fields
+	index   int   // for placing kittens
+	indices []int // for altering the future
 }
 
 type Lobby struct {
@@ -205,6 +216,9 @@ func (lobby *Lobby) startGame() error {
 	for i := 0; i < numPlayers*SeeTheFutureMultiplier; i++ {
 		safeDeck = append(safeDeck, SeeTheFuture)
 	}
+	for i := 0; i < numPlayers*AlterTheFutureMultiplier; i++ {
+		safeDeck = append(safeDeck, AlterTheFuture)
+	}
 
 	// Put safe cards in the main deck and shuffle
 	lobby.deck = safeDeck
@@ -256,14 +270,8 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		lobby.disconnectPlayer(playerId)
 
 	case DrawCard:
-		if !lobby.inProgress() {
-			return errors.New("Cannot draw card - Game not in progress")
-		}
-		if !isPlayerTurn {
-			return errors.New("Cannot draw card - Not your turn")
-		}
-		if lobby.turnState != Normal && lobby.turnState != SeeingTheFuture {
-			return errors.New("Cannot draw card - Cannot pick up cards right now")
+		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "draw card"); err != nil {
+			return err
 		}
 
 		lobby.turnState = Normal // clear effects like seeing the future
@@ -282,11 +290,8 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		}
 
 	case PlaceKitten:
-		if !isPlayerTurn {
-			return errors.New("Cannot place kitten - Not your turn")
-		}
-		if lobby.turnState != AwaitingKittenPlacement {
-			return errors.New("Cannot place kitten - You did not pick up a kitten")
+		if err := lobby.assertTurnAndState([]TurnState{AwaitingKittenPlacement}, isPlayerTurn, "place kitten"); err != nil {
+			return err
 		}
 		newKittenPosition := action.index
 		if newKittenPosition < 0 || newKittenPosition > len(lobby.deck) {
@@ -297,14 +302,8 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		lobby.setNextPlayerTurn()
 
 	case PlayCard:
-		if !lobby.inProgress() {
-			return errors.New("Cannot play card - Game not in progress")
-		}
-		if !isPlayerTurn {
-			return errors.New("Cannot play card - Not your turn")
-		}
-		if lobby.turnState == AwaitingKittenPlacement {
-			return errors.New("Cannot play card - You must place your kitten down first")
+		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "play card"); err != nil {
+			return err
 		}
 		if action.index < 0 || action.index >= len(player.Hand) {
 			return errors.New("Cannot play card - No card found at that index")
@@ -319,11 +318,43 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			lobby.setNextPlayerTurn() // TODO: make this decrease attacks by 1 instead
 		case SeeTheFuture:
 			lobby.turnState = SeeingTheFuture
+		case AlterTheFuture:
+			lobby.turnState = AlteringTheFuture
 		default:
 			return errors.New("Cannot play that card")
 		}
+
+	case AlterFuture:
+		if err := lobby.assertTurnAndState([]TurnState{AlteringTheFuture}, isPlayerTurn, "alter future"); err != nil {
+			return err
+		}
+		alterSize := min(3, len(lobby.deck))
+		if len(action.indices) != alterSize {
+			return fmt.Errorf("Expected indices to have length %d, got %d", alterSize, len(action.indices))
+		}
+		for i := range action.indices {
+			if !slices.Contains(action.indices, i) {
+				return fmt.Errorf("Invalid indices list - missing value %d", i)
+			}
+		}
+		buffer := make([]Card, alterSize)
+		for newIndex, oldIndex := range action.indices {
+			buffer[newIndex] = lobby.deck[oldIndex]
+		}
+		copy(lobby.deck, buffer)
+		lobby.turnState = Normal
 	}
 
+	return nil
+}
+
+func (lobby *Lobby) assertTurnAndState(validStates []TurnState, isPlayerTurn bool, action string) error {
+	if !slices.Contains(validStates, lobby.turnState) {
+		return errors.New("Cannot " + action + " - Invalid state")
+	}
+	if !isPlayerTurn {
+		return errors.New("Cannot " + action + " - Not your turn")
+	}
 	return nil
 }
 
@@ -375,7 +406,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	player := lobby.players[playerIdx]
 	hand := cardSliceToStrings(player.Hand)
 	var future []string = nil
-	if lobby.turnState == SeeingTheFuture && lobby.currentPlayerIndex == playerIdx {
+	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && lobby.currentPlayerIndex == playerIdx {
 		count := min(3, len(player.Hand))
 		future = cardSliceToStrings(lobby.deck[:count])
 	}
