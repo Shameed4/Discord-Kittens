@@ -15,6 +15,7 @@ const (
 	SkipMultiplier           = 2
 	SeeTheFutureMultiplier   = 2
 	AlterTheFutureMultiplier = 2
+	AttackMultiplier         = 2
 )
 
 type Card int
@@ -23,6 +24,8 @@ const (
 	Defuse Card = iota
 	ExplodingKitten
 	Skip
+	Attack
+	TargetedAttack
 	Cat
 	SeeTheFuture
 	AlterTheFuture
@@ -36,6 +39,10 @@ func (c Card) String() string {
 		return "EXPLODING_KITTEN"
 	case Skip:
 		return "SKIP"
+	case Attack:
+		return "ATTACK"
+	case TargetedAttack:
+		return "TARGETTED_ATTACK"
 	case Cat:
 		return "CAT"
 	case SeeTheFuture:
@@ -95,13 +102,15 @@ type PlayerGameState struct {
 }
 
 type GameState struct {
-	PlayerId   int               `json:"playerId"`
-	TurnId     int               `json:"turnId"`
-	DeckSize   int               `json:"deckSize"`
-	Players    []PlayerGameState `json:"players"`
-	TurnState  string            `json:"turnState"`
-	Hand       []string          `json:"hand"`
-	InProgress bool              `json:"inProgress"`
+	PlayerId    int               `json:"playerId"`
+	TurnId      int               `json:"turnId"`
+	DeckSize    int               `json:"deckSize"`
+	Players     []PlayerGameState `json:"players"`
+	TurnState   string            `json:"turnState"`
+	Hand        []string          `json:"hand"`
+	InProgress  bool              `json:"inProgress"`
+	UnderAttack bool              `json:"underAttack"`
+	TurnsToTake int               `json:"turnsToTake"`
 
 	Future []string `json:"future,omitempty"` // for see/alter the future
 	Err    string   `json:"err,omitempty"`
@@ -153,6 +162,8 @@ type Lobby struct {
 	currentPlayerIndex int
 	turnState          TurnState
 	livingPlayers      int
+	turnsToTake        int
+	underAttack        bool
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
@@ -218,6 +229,9 @@ func (lobby *Lobby) startGame() error {
 	}
 	for i := 0; i < numPlayers*AlterTheFutureMultiplier; i++ {
 		safeDeck = append(safeDeck, AlterTheFuture)
+	}
+	for i := 0; i < numPlayers*AttackMultiplier; i++ {
+		safeDeck = append(safeDeck, Attack)
 	}
 
 	// Put safe cards in the main deck and shuffle
@@ -286,7 +300,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			}
 		} else {
 			player.Hand = append(player.Hand, drawn)
-			lobby.setNextPlayerTurn()
+			lobby.decreaseTurns()
 		}
 
 	case PlaceKitten:
@@ -299,7 +313,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		}
 		lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
 		lobby.turnState = Normal
-		lobby.setNextPlayerTurn()
+		lobby.setNextPlayerTurn(false)
 
 	case PlayCard:
 		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "play card"); err != nil {
@@ -315,11 +329,13 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 
 		switch playedCard {
 		case Skip:
-			lobby.setNextPlayerTurn() // TODO: make this decrease attacks by 1 instead
+			lobby.decreaseTurns()
 		case SeeTheFuture:
 			lobby.turnState = SeeingTheFuture
 		case AlterTheFuture:
 			lobby.turnState = AlteringTheFuture
+		case Attack:
+			lobby.setNextPlayerTurn(true)
 		default:
 			return errors.New("Cannot play that card")
 		}
@@ -348,6 +364,13 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 	return nil
 }
 
+func (lobby *Lobby) decreaseTurns() {
+	lobby.turnsToTake -= 1
+	if lobby.turnsToTake == 0 {
+		lobby.setNextPlayerTurn(false)
+	}
+}
+
 func (lobby *Lobby) assertTurnAndState(validStates []TurnState, isPlayerTurn bool, action string) error {
 	if !slices.Contains(validStates, lobby.turnState) {
 		return errors.New("Cannot " + action + " - Invalid state")
@@ -362,7 +385,7 @@ func (lobby *Lobby) eliminatePlayer(playerId int) {
 	lobby.livingPlayers--
 	lobby.players[playerId].IsAlive = false
 	if lobby.currentPlayerIndex == playerId {
-		lobby.setNextPlayerTurn()
+		lobby.setNextPlayerTurn(false)
 		lobby.turnState = Normal
 	}
 	if lobby.livingPlayers == 1 && lobby.inProgress() {
@@ -380,7 +403,7 @@ func (lobby *Lobby) disconnectPlayer(playerId int) {
 	lobby.eliminatePlayer(playerId)
 }
 
-func (lobby *Lobby) setNextPlayerTurn() {
+func (lobby *Lobby) setNextPlayerTurn(attack bool) {
 	if lobby.livingPlayers == 0 {
 		return // Safety valve to prevent infinite loops
 	}
@@ -389,9 +412,21 @@ func (lobby *Lobby) setNextPlayerTurn() {
 		idx = (idx + 1) % len(lobby.players)
 		if lobby.players[idx].IsAlive {
 			lobby.currentPlayerIndex = idx
-			return
+			break
 		}
 	}
+	if !attack {
+		lobby.turnsToTake = 1
+		lobby.underAttack = false
+		return
+	}
+
+	if lobby.underAttack {
+		lobby.turnsToTake += 2
+	} else {
+		lobby.turnsToTake = 2
+	}
+	lobby.underAttack = true
 }
 
 func cardSliceToStrings(cards []Card) []string {
@@ -411,12 +446,14 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		future = cardSliceToStrings(lobby.deck[:count])
 	}
 	res := GameState{
-		PlayerId:   playerIdx,
-		TurnId:     lobby.currentPlayerIndex,
-		DeckSize:   len(lobby.deck),
-		TurnState:  lobby.turnState.String(),
-		Hand:       hand,
-		InProgress: lobby.inProgress(),
+		PlayerId:    playerIdx,
+		TurnId:      lobby.currentPlayerIndex,
+		DeckSize:    len(lobby.deck),
+		TurnState:   lobby.turnState.String(),
+		Hand:        hand,
+		InProgress:  lobby.inProgress(),
+		UnderAttack: lobby.underAttack,
+		TurnsToTake: lobby.turnsToTake,
 
 		Future: future,
 	}
