@@ -17,10 +17,12 @@ type ActionRequest struct {
 	ActionStr string `json:"action"`
 
 	// optional fields
-	PlaceKittenIndex int   `json:"placeKittenIndex"` // for placing kittens
-	UseCardIndex     int   `json:"useCardIndex"`     // card that you place
-	AlterFutureOrder []int `json:"alterFutureOrder"` // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
-	TargetedPlayer   int   `json:"targetedPlayer"`   // player being targeted
+	PlaceKittenIndex int    `json:"placeKittenIndex"` // for placing kittens
+	UseCardIndex     int    `json:"useCardIndex"`     // card that you place
+	AlterFutureOrder []int  `json:"alterFutureOrder"` // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
+	TargetedPlayer   int    `json:"targetedPlayer"`   // player being targeted
+	ComboIndices     []int  `json:"comboIndices"`     // list of cards used for combo
+	RequestedCardStr string `json:"requestedCard"`    // card requested for combo
 }
 
 var (
@@ -153,7 +155,18 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			useCardIndex:     actionRequest.UseCardIndex,
 			alterFutureOrder: actionRequest.AlterFutureOrder,
 			targetedPlayer:   actionRequest.TargetedPlayer,
+			comboIndices:     actionRequest.ComboIndices,
 		}
+
+		if actionRequest.RequestedCardStr != "" {
+			requestedCard, err := ParseCard(actionRequest.RequestedCardStr)
+			if err != nil {
+				lobby.sendError(playerId, err.Error())
+				continue
+			}
+			action.requestedCard = requestedCard
+		}
+
 		lobby.ActionQueue <- action
 	}
 

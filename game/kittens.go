@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -14,7 +15,11 @@ const (
 )
 
 var multipliers = map[Card]int{
-	Cat:            4,
+	Cat1:           4,
+	Cat2:           4,
+	Cat3:           4,
+	Cat4:           4,
+	FeralCat:       4,
 	Skip:           2,
 	SeeTheFuture:   2,
 	AlterTheFuture: 2,
@@ -33,7 +38,11 @@ const (
 	Skip
 	Attack
 	TargetedAttack
-	Cat
+	Cat1
+	Cat2
+	Cat3
+	Cat4
+	FeralCat
 	SeeTheFuture
 	AlterTheFuture
 	Shuffle
@@ -53,8 +62,16 @@ func (c Card) String() string {
 		return "ATTACK"
 	case TargetedAttack:
 		return "TARGETED_ATTACK"
-	case Cat:
-		return "CAT"
+	case Cat1:
+		return "CAT1"
+	case Cat2:
+		return "CAT2"
+	case Cat3:
+		return "CAT3"
+	case Cat4:
+		return "CAT4"
+	case FeralCat:
+		return "FERAL_CAT"
 	case SeeTheFuture:
 		return "SEE_THE_FUTURE"
 	case AlterTheFuture:
@@ -70,6 +87,13 @@ func (c Card) String() string {
 	}
 }
 
+func ParseCard(s string) (Card, error) {
+	if card, ok := cardNames[s]; ok {
+		return card, nil
+	}
+	return 0, errors.New("invalid card: " + s)
+}
+
 type TurnState int
 
 const (
@@ -80,7 +104,6 @@ const (
 	SeeingTheFuture
 	AlteringTheFuture
 	AwaitingFavor
-	// TODO: add things like awaiting nope, awaiting favor, awaiting 5 unique, etc
 )
 
 func (t TurnState) String() string {
@@ -157,6 +180,7 @@ const (
 	Disconnect
 	AlterFuture
 	GiveFavor
+	Combo
 )
 
 var actionTypeNames = map[string]ActionType{
@@ -177,6 +201,8 @@ type PlayerAction struct {
 	useCardIndex     int   // card that you place
 	alterFutureOrder []int // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
 	targetedPlayer   int   // player being targeted
+	comboIndices     []int // list of card indices used for combo
+	requestedCard    Card  // card requested from 3 combo
 }
 
 type Lobby struct {
@@ -196,8 +222,19 @@ type Lobby struct {
 
 // Global state
 var (
-	rng = rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng       = rand.New(rand.NewSource(time.Now().UnixNano()))
+	cardNames map[string]Card
 )
+
+func init() {
+	cardNames = make(map[string]Card)
+	for i := Card(0); i <= Favor; i++ {
+		s := i.String()
+		if s != "UNKNOWN" {
+			cardNames[s] = i
+		}
+	}
+}
 
 // --- Helper Functions ---
 func NewLobby() *Lobby {
@@ -415,6 +452,52 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		requester := lobby.players[lobby.currentPlayerIndex]
 		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
 		requester.Hand = append(requester.Hand, transferredCard)
+
+	case Combo:
+		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "combo"); err != nil {
+			return err
+		}
+		if err := assertUniqueAndInBounds(action.comboIndices, len(player.Hand)); err != nil {
+			return err
+		}
+		lobby.turnState = Normal
+		comboSize := len(action.comboIndices)
+		comboCards := make([]Card, len(action.comboIndices))
+		for i, cardIdx := range action.comboIndices {
+			comboCards[i] = player.Hand[cardIdx]
+		}
+		if comboSize == 2 || comboSize == 3 {
+			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
+				return err
+			}
+			targetedPlayer := lobby.players[action.targetedPlayer]
+			if len(targetedPlayer.Hand) == 0 {
+				return errors.New("Cannot target a player without cards in their hand")
+			}
+			if err := assertValidMatchingCombo(comboCards); err != nil {
+				return err
+			}
+			// sort descending
+			slices.SortFunc(action.comboIndices, func(a, b int) int {
+				return cmp.Compare(b, a)
+			})
+			for _, cardIdx := range action.comboIndices {
+				player.Hand = slices.Delete(player.Hand, cardIdx, cardIdx+1)
+			}
+			deleteIndex := -1
+			switch comboSize {
+			case 2:
+				deleteIndex = rand.Intn(len(targetedPlayer.Hand))
+			case 3:
+				deleteIndex = slices.Index(targetedPlayer.Hand, action.requestedCard)
+			}
+			if deleteIndex != -1 {
+				player.Hand = append(player.Hand, targetedPlayer.Hand[deleteIndex])
+				targetedPlayer.Hand = slices.Delete(targetedPlayer.Hand, deleteIndex, deleteIndex+1)
+			}
+		} else {
+			return errors.New("Combos must contain 2 or 3 cards")
+		}
 	}
 	return nil
 }
@@ -572,6 +655,63 @@ func (lobby *Lobby) broadcastGameState() {
 
 func (lobby *Lobby) inProgress() bool {
 	return lobby.turnState != NotStarted && lobby.turnState != GameOver
+}
+
+func (c Card) isCat() bool {
+	return c == Cat1 || c == Cat2 || c == Cat3 || c == Cat4 || c == FeralCat
+}
+
+// returns true if either all the cards are the same, or it contains only 1 cat type + feral cats
+func assertValidMatchingCombo(cards []Card) error {
+	if len(cards) <= 1 {
+		return nil
+	}
+
+	counts := make(map[Card]bool)
+	for _, c := range cards {
+		counts[c] = true
+	}
+
+	if len(counts) == 1 {
+		return nil
+	}
+
+	if len(counts) == 2 {
+		hasFeral := false
+		allAreCats := true
+
+		for c := range counts {
+			if c == FeralCat {
+				hasFeral = true
+			}
+			if !c.isCat() {
+				allAreCats = false
+			}
+		}
+
+		if hasFeral && allAreCats {
+			return nil
+		} else {
+			return errors.New("Not a matching combo")
+		}
+	}
+
+	return errors.New("Not a matching combo")
+}
+
+// check if each element in the array < n and that they're all unique
+func assertUniqueAndInBounds(indices []int, n int) error {
+	counts := make(map[int]bool)
+	for _, el := range indices {
+		counts[el] = true
+		if 0 < el || el >= n {
+			return errors.New("All indices must be in bounds")
+		}
+	}
+	if len(counts) != len(indices) {
+		return errors.New("All elements must be unique")
+	}
+	return nil
 }
 
 func (lobby *Lobby) run() {
