@@ -10,17 +10,20 @@ import (
 )
 
 const (
-	ExtraDefuses             = 2
-	CatMultiplier            = 4
-	SkipMultiplier           = 2
-	SeeTheFutureMultiplier   = 2
-	AlterTheFutureMultiplier = 2
-	AttackMultiplier         = 2
-	TargetedAttackMultiplier = 2
-	ShuffleMultiplier        = 2
-	DrawFromBottomMultiplier = 2
-	FavorMultiplier          = 2
+	ExtraDefuses = 2
 )
+
+var multipliers = map[Card]int{
+	Cat:            4,
+	Skip:           2,
+	SeeTheFuture:   2,
+	AlterTheFuture: 2,
+	Attack:         2,
+	TargetedAttack: 2,
+	Shuffle:        2,
+	DrawFromBottom: 2,
+	Favor:          2,
+}
 
 type Card int
 
@@ -250,34 +253,13 @@ func (lobby *Lobby) startGame() error {
 	lobby.livingPlayers = numPlayers
 	lobby.turnState = Normal
 
-	// Create a pool of safe cards (Lots of Cats, some Skips)
+	// Create a pool of safe cards
 	var safeDeck []Card
-	for i := 0; i < numPlayers*CatMultiplier; i++ {
-		safeDeck = append(safeDeck, Cat)
-	}
-	for i := 0; i < numPlayers*SkipMultiplier; i++ {
-		safeDeck = append(safeDeck, Skip)
-	}
-	for i := 0; i < numPlayers*SeeTheFutureMultiplier; i++ {
-		safeDeck = append(safeDeck, SeeTheFuture)
-	}
-	for i := 0; i < numPlayers*AlterTheFutureMultiplier; i++ {
-		safeDeck = append(safeDeck, AlterTheFuture)
-	}
-	for i := 0; i < numPlayers*AttackMultiplier; i++ {
-		safeDeck = append(safeDeck, Attack)
-	}
-	for i := 0; i < numPlayers*TargetedAttackMultiplier; i++ {
-		safeDeck = append(safeDeck, TargetedAttack)
-	}
-	for i := 0; i < numPlayers*ShuffleMultiplier; i++ {
-		safeDeck = append(safeDeck, Shuffle)
-	}
-	for i := 0; i < numPlayers*DrawFromBottomMultiplier; i++ {
-		safeDeck = append(safeDeck, DrawFromBottom)
-	}
-	for i := 0; i < numPlayers*FavorMultiplier; i++ {
-		safeDeck = append(safeDeck, Favor)
+	for cardType, multiplier := range multipliers {
+		count := numPlayers * multiplier
+		for i := 0; i < count; i++ {
+			safeDeck = append(safeDeck, cardType)
+		}
 	}
 
 	// Put safe cards in the main deck and shuffle
