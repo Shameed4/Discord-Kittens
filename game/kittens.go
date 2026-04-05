@@ -104,6 +104,7 @@ const (
 	SeeingTheFuture
 	AlteringTheFuture
 	AwaitingFavor
+	AwaitingDiscardTake
 )
 
 func (t TurnState) String() string {
@@ -122,6 +123,8 @@ func (t TurnState) String() string {
 		return "ALTERING_THE_FUTURE"
 	case AwaitingFavor:
 		return "AWAITING_FAVOR"
+	case AwaitingDiscardTake:
+		return "AWAITING_DISCARD_TAKE"
 	default:
 		return "UNKNOWN"
 	}
@@ -154,8 +157,9 @@ type GameState struct {
 	UnderAttack bool              `json:"underAttack"`
 	TurnsToTake int               `json:"turnsToTake"`
 
-	Future         []string `json:"future,omitempty"` // for see/alter the future
-	TargetedPlayer int      `json:"targetedPlayer"`   // for actions that require another player's response
+	Future         []string `json:"future,omitempty"`         // for see/alter the future
+	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
+	TargetedPlayer int      `json:"targetedPlayer"`           // for actions that require another player's response
 	Err            string   `json:"err,omitempty"`
 }
 
@@ -181,6 +185,7 @@ const (
 	AlterFuture
 	GiveFavor
 	Combo
+	TakeFromDiscard
 )
 
 var actionTypeNames = map[string]ActionType{
@@ -214,8 +219,9 @@ type Lobby struct {
 	livingPlayers      int
 	turnsToTake        int
 	underAttack        bool
+	discardPile        []Card
 
-	targetedPlayer int // only relevant for cards like favor
+	targetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
@@ -390,7 +396,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			return errors.New("Cannot ask a favor from a player without cards!")
 		}
 
-		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
+		lobby.discardCard(player, action.useCardIndex)
 
 		switch playedCard {
 		case Skip:
@@ -467,7 +473,8 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		for i, cardIdx := range action.comboIndices {
 			comboCards[i] = player.Hand[cardIdx]
 		}
-		if comboSize == 2 || comboSize == 3 {
+		switch comboSize {
+		case 2, 3:
 			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
 				return err
 			}
@@ -477,13 +484,6 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			}
 			if err := assertValidMatchingCombo(comboCards); err != nil {
 				return err
-			}
-			// sort descending
-			slices.SortFunc(action.comboIndices, func(a, b int) int {
-				return cmp.Compare(b, a)
-			})
-			for _, cardIdx := range action.comboIndices {
-				player.Hand = slices.Delete(player.Hand, cardIdx, cardIdx+1)
 			}
 			deleteIndex := -1
 			switch comboSize {
@@ -496,9 +496,40 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 				player.Hand = append(player.Hand, targetedPlayer.Hand[deleteIndex])
 				targetedPlayer.Hand = slices.Delete(targetedPlayer.Hand, deleteIndex, deleteIndex+1)
 			}
-		} else {
-			return errors.New("Combos must contain 2 or 3 cards")
+		case 5:
+			if len(lobby.discardPile) == 0 {
+				return errors.New("No cards to take from the discard pile!")
+			}
+			uniqueCards := make(map[Card]bool)
+			for _, c := range comboCards {
+				uniqueCards[c] = true
+			}
+			if len(uniqueCards) != 5 {
+				return errors.New("All 5 cards must be unique")
+			}
+			lobby.turnState = AwaitingDiscardTake
+		default:
+			return errors.New("Combos must contain 2, 3, or 5 cards")
 		}
+		// at this point we know it was successful, remove the cards
+		slices.SortFunc(action.comboIndices, func(a, b int) int {
+			return cmp.Compare(b, a)
+		})
+		for _, cardIdx := range action.comboIndices {
+			lobby.discardCard(player, cardIdx)
+		}
+
+	case TakeFromDiscard:
+		if err := lobby.assertTurnAndState([]TurnState{AwaitingDiscardTake}, isPlayerTurn, "take from discard"); err != nil {
+			return err
+		}
+		if takeIdx := slices.Index(lobby.discardPile, action.requestedCard); takeIdx != -1 {
+			player.Hand = append(player.Hand, lobby.discardPile[takeIdx])
+			lobby.discardPile = slices.Delete(lobby.discardPile, takeIdx, takeIdx+1)
+		} else {
+			return errors.New("Card is not in discard pile!")
+		}
+		lobby.turnState = Normal
 	}
 	return nil
 }
@@ -608,9 +639,22 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	player := lobby.players[playerIdx]
 	hand := cardSliceToStrings(player.Hand)
 	var future []string = nil
-	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && lobby.currentPlayerIndex == playerIdx {
+	var isPlayerTurn = lobby.currentPlayerIndex == playerIdx
+	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && isPlayerTurn {
 		count := min(3, len(lobby.deck))
 		future = cardSliceToStrings(lobby.deck[:count])
+	}
+	var discardOptions []string
+	if lobby.turnState == AwaitingDiscardTake && isPlayerTurn {
+		discardMap := make(map[Card]bool)
+		discardOptions = []string{}
+		for _, c := range lobby.discardPile {
+			// Check if we have already processed this specific card value
+			if !discardMap[c] {
+				discardMap[c] = true
+				discardOptions = append(discardOptions, c.String())
+			}
+		}
 	}
 	res := GameState{
 		PlayerId:    playerIdx,
@@ -624,6 +668,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 
 		Future:         future,
 		TargetedPlayer: lobby.targetedPlayer,
+		DiscardOptions: discardOptions,
 	}
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{
@@ -634,6 +679,11 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		})
 	}
 	return res
+}
+
+func (lobby *Lobby) discardCard(player *Player, idx int) {
+	lobby.discardPile = append(lobby.discardPile, player.Hand[idx])
+	player.Hand = slices.Delete(player.Hand, idx, idx+1)
 }
 
 func (lobby *Lobby) sendError(playerIdx int, err string) {
