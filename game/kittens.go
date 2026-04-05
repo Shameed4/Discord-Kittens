@@ -190,6 +190,7 @@ var actionTypeNames = map[string]ActionType{
 	"PLACE_KITTEN": PlaceKitten,
 	"DISCONNECT":   Disconnect,
 	"ALTER_FUTURE": AlterFuture,
+	"GIVE_FAVOR":   GiveFavor,
 }
 
 type PlayerAction struct {
@@ -699,12 +700,12 @@ func assertValidMatchingCombo(cards []Card) error {
 	return errors.New("Not a matching combo")
 }
 
-// check if each element in the array < n and that they're all unique
+// check if each element in the array is between 0 and n and that they're all unique
 func assertUniqueAndInBounds(indices []int, n int) error {
 	counts := make(map[int]bool)
 	for _, el := range indices {
 		counts[el] = true
-		if 0 < el || el >= n {
+		if el < 0 || el >= n {
 			return errors.New("All indices must be in bounds")
 		}
 	}
