@@ -586,6 +586,7 @@ func (lobby *Lobby) eliminatePlayer(playerId int) {
 	}
 }
 
+// disconnects player from lobby
 func (lobby *Lobby) disconnectPlayer(playerId int) {
 	player := lobby.players[playerId]
 	if !player.IsOnline {
@@ -593,7 +594,13 @@ func (lobby *Lobby) disconnectPlayer(playerId int) {
 	}
 	player.IsOnline = false
 	close(player.Send)
-	lobby.eliminatePlayer(playerId)
+
+	for _, player := range lobby.players {
+		if player.IsOnline {
+			return
+		}
+	}
+	lobby.turnState = GameOver
 }
 
 func (lobby *Lobby) setNextPlayerTurn(attack bool) {
