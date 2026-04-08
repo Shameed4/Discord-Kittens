@@ -1,0 +1,207 @@
+package main
+
+import (
+	"cmp"
+	"errors"
+	"fmt"
+	"math/rand"
+	"slices"
+)
+
+func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
+	playerId := action.playerId
+	player := lobby.players[playerId]
+	isPlayerTurn := action.playerId == lobby.currentPlayerIndex
+	switch action.actionType {
+	case StartGame:
+		if lobby.inProgress() {
+			return errors.New("Cannot start lobby - game already in progress")
+		}
+		if err := lobby.startGame(); err != nil {
+			return err
+		}
+
+	case Disconnect:
+		if !player.IsOnline {
+			fmt.Printf("Illegal state? Player id %d is offline but disconnected", playerId)
+		}
+		lobby.disconnectPlayer(playerId)
+
+	case DrawCard:
+		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "draw card"); err != nil {
+			return err
+		}
+
+		lobby.turnState = Normal // clear effects like seeing the future
+		drawn := lobby.removeTopCard()
+		lobby.resolveDrawnCard(player, drawn)
+
+	case PlaceKitten:
+		if err := lobby.assertTurnAndState([]TurnState{AwaitingKittenPlacement}, isPlayerTurn, "place kitten"); err != nil {
+			return err
+		}
+		newKittenPosition := action.placeKittenIndex
+		if newKittenPosition < 0 || newKittenPosition > len(lobby.deck) {
+			return errors.New("Invalid kitten position")
+		}
+		lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
+		lobby.turnState = Normal
+		lobby.setNextPlayerTurn(false)
+
+	case PlayCard:
+		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "play card"); err != nil {
+			return err
+		}
+		if action.useCardIndex < 0 || action.useCardIndex >= len(player.Hand) {
+			return errors.New("Cannot play card - No card found at that index")
+		}
+
+		playedCard := player.Hand[action.useCardIndex]
+
+		// validate before we take the card away
+		if playedCard == TargetedAttack || playedCard == Favor {
+			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
+				return err
+			}
+		}
+		if playedCard == Favor && len(lobby.players[action.targetedPlayer].Hand) == 0 {
+			return errors.New("Cannot ask a favor from a player without cards!")
+		}
+
+		lobby.discardCard(player, action.useCardIndex)
+
+		switch playedCard {
+		case Skip:
+			lobby.turnState = Normal
+			lobby.decreaseTurns()
+		case SeeTheFuture:
+			lobby.turnState = SeeingTheFuture
+		case AlterTheFuture:
+			lobby.turnState = AlteringTheFuture
+		case Attack:
+			lobby.turnState = Normal
+			lobby.setNextPlayerTurn(true)
+		case TargetedAttack:
+			lobby.turnState = Normal
+			lobby.setPlayerTurn(true, action.targetedPlayer)
+		case Shuffle:
+			lobby.turnState = Normal
+			lobby.shuffleDeck()
+		case DrawFromBottom:
+			lobby.turnState = Normal
+			drawn := lobby.removeBottomCard()
+			lobby.resolveDrawnCard(player, drawn)
+		case Favor:
+			lobby.turnState = AwaitingFavor
+			lobby.targetedPlayer = action.targetedPlayer
+		default:
+			return errors.New("Cannot play that card")
+		}
+
+	case AlterFuture:
+		if err := lobby.assertTurnAndState([]TurnState{AlteringTheFuture}, isPlayerTurn, "alter future"); err != nil {
+			return err
+		}
+		alterSize := min(3, len(lobby.deck))
+		if len(action.alterFutureOrder) != alterSize {
+			return fmt.Errorf("Expected indices to have length %d, got %d", alterSize, len(action.alterFutureOrder))
+		}
+		for i := range action.alterFutureOrder {
+			if !slices.Contains(action.alterFutureOrder, i) {
+				return fmt.Errorf("Invalid indices list - missing value %d", i)
+			}
+		}
+		buffer := make([]Card, alterSize)
+		for newIndex, oldIndex := range action.alterFutureOrder {
+			buffer[newIndex] = lobby.deck[oldIndex]
+		}
+		copy(lobby.deck, buffer)
+		lobby.turnState = Normal
+
+	case GiveFavor:
+		if lobby.turnState != AwaitingFavor || lobby.targetedPlayer != playerId {
+			return errors.New("Must be the target of a favor request")
+		}
+		if action.useCardIndex < 0 || action.useCardIndex >= len(player.Hand) {
+			return errors.New("Given card is out of bounds")
+		}
+
+		lobby.turnState = Normal
+		transferredCard := player.Hand[action.useCardIndex]
+		requester := lobby.players[lobby.currentPlayerIndex]
+		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
+		requester.Hand = append(requester.Hand, transferredCard)
+
+	case Combo:
+		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "combo"); err != nil {
+			return err
+		}
+		if err := assertUniqueAndInBounds(action.comboIndices, len(player.Hand)); err != nil {
+			return err
+		}
+		lobby.turnState = Normal
+		comboSize := len(action.comboIndices)
+		comboCards := make([]Card, len(action.comboIndices))
+		for i, cardIdx := range action.comboIndices {
+			comboCards[i] = player.Hand[cardIdx]
+		}
+		switch comboSize {
+		case 2, 3:
+			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
+				return err
+			}
+			targetedPlayer := lobby.players[action.targetedPlayer]
+			if len(targetedPlayer.Hand) == 0 {
+				return errors.New("Cannot target a player without cards in their hand")
+			}
+			if err := assertValidMatchingCombo(comboCards); err != nil {
+				return err
+			}
+			deleteIndex := -1
+			switch comboSize {
+			case 2:
+				deleteIndex = rand.Intn(len(targetedPlayer.Hand))
+			case 3:
+				deleteIndex = slices.Index(targetedPlayer.Hand, action.requestedCard)
+			}
+			if deleteIndex != -1 {
+				player.Hand = append(player.Hand, targetedPlayer.Hand[deleteIndex])
+				targetedPlayer.Hand = slices.Delete(targetedPlayer.Hand, deleteIndex, deleteIndex+1)
+			}
+		case 5:
+			if len(lobby.discardPile) == 0 {
+				return errors.New("No cards to take from the discard pile!")
+			}
+			uniqueCards := make(map[Card]bool)
+			for _, c := range comboCards {
+				uniqueCards[c] = true
+			}
+			if len(uniqueCards) != 5 {
+				return errors.New("All 5 cards must be unique")
+			}
+			lobby.turnState = AwaitingDiscardTake
+		default:
+			return errors.New("Combos must contain 2, 3, or 5 cards")
+		}
+		// at this point we know it was successful, remove the cards
+		slices.SortFunc(action.comboIndices, func(a, b int) int {
+			return cmp.Compare(b, a)
+		})
+		for _, cardIdx := range action.comboIndices {
+			lobby.discardCard(player, cardIdx)
+		}
+
+	case TakeFromDiscard:
+		if err := lobby.assertTurnAndState([]TurnState{AwaitingDiscardTake}, isPlayerTurn, "take from discard"); err != nil {
+			return err
+		}
+		if takeIdx := slices.Index(lobby.discardPile, action.requestedCard); takeIdx != -1 {
+			player.Hand = append(player.Hand, lobby.discardPile[takeIdx])
+			lobby.discardPile = slices.Delete(lobby.discardPile, takeIdx, takeIdx+1)
+		} else {
+			return errors.New("Card is not in discard pile!")
+		}
+		lobby.turnState = Normal
+	}
+	return nil
+}
