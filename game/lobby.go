@@ -72,7 +72,15 @@ type GameState struct {
 	Future         []string `json:"future,omitempty"`         // for see/alter the future
 	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
 	TargetedPlayer int      `json:"targetedPlayer"`           // for actions that require another player's response
+	LastAction     string   `json:"lastAction,omitempty"`
 	Err            string   `json:"err,omitempty"`
+}
+
+// LastAction holds the description of the most recent game event.
+// Private overrides Public for specific players (e.g., to reveal what card was stolen from them).
+type LastAction struct {
+	Public  string
+	Private map[int]string // playerIdx -> personalized message
 }
 
 type JoinRequest struct {
@@ -101,13 +109,15 @@ const (
 )
 
 var actionTypeNames = map[string]ActionType{
-	"START_GAME":   StartGame,
-	"PLAY_CARD":    PlayCard,
-	"DRAW_CARD":    DrawCard,
-	"PLACE_KITTEN": PlaceKitten,
-	"DISCONNECT":   Disconnect,
-	"ALTER_FUTURE": AlterFuture,
-	"GIVE_FAVOR":   GiveFavor,
+	"START_GAME":        StartGame,
+	"PLAY_CARD":         PlayCard,
+	"DRAW_CARD":         DrawCard,
+	"PLACE_KITTEN":      PlaceKitten,
+	"DISCONNECT":        Disconnect,
+	"ALTER_FUTURE":      AlterFuture,
+	"GIVE_FAVOR":        GiveFavor,
+	"COMBO":             Combo,
+	"TAKE_FROM_DISCARD": TakeFromDiscard,
 }
 
 type PlayerAction struct {
@@ -132,6 +142,7 @@ type Lobby struct {
 	turnsToTake        int
 	underAttack        bool
 	discardPile        []Card
+	lastAction         LastAction
 
 	targetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
 

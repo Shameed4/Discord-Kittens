@@ -2,20 +2,24 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"slices"
 )
 
-func (lobby *Lobby) resolveDrawnCard(player *Player, drawn Card) {
+func (lobby *Lobby) resolveDrawnCard(player *Player, drawn Card, actionDesc string) {
 	if drawn == ExplodingKitten {
 		if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
 			player.Hand = slices.Delete(player.Hand, defuseIndex, defuseIndex+1)
 			lobby.turnState = AwaitingKittenPlacement
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s and defused it!", player.Id, actionDesc)}
 		} else {
 			player.IsAlive = false
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s and exploded!", player.Id, actionDesc)}
 		}
 	} else {
 		player.Hand = append(player.Hand, drawn)
 		lobby.setNextPlayerTurn(false)
+		lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s", player.Id, actionDesc)}
 	}
 }
 
@@ -82,6 +86,13 @@ func (lobby *Lobby) assertPlayerExistsAndAlive(playerId int) error {
 
 // --- State Broadcasting ---
 
+func (lobby *Lobby) lastActionFor(playerIdx int) string {
+	if msg, ok := lobby.lastAction.Private[playerIdx]; ok {
+		return msg
+	}
+	return lobby.lastAction.Public
+}
+
 func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	player := lobby.players[playerIdx]
 	hand := cardSliceToStrings(player.Hand)
@@ -115,6 +126,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		Future:         future,
 		TargetedPlayer: lobby.targetedPlayer,
 		DiscardOptions: discardOptions,
+		LastAction:     lobby.lastActionFor(playerIdx),
 	}
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{

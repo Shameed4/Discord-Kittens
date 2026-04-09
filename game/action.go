@@ -20,12 +20,14 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		if err := lobby.startGame(); err != nil {
 			return err
 		}
+		lobby.lastAction = LastAction{Public: "Game started!"}
 
 	case Disconnect:
 		if !player.IsOnline {
 			fmt.Printf("Illegal state? Player id %d is offline but disconnected", playerId)
 		}
 		lobby.disconnectPlayer(playerId)
+		lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d disconnected", playerId)}
 
 	case DrawCard:
 		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "draw card"); err != nil {
@@ -34,7 +36,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 
 		lobby.turnState = Normal // clear effects like seeing the future
 		drawn := lobby.removeTopCard()
-		lobby.resolveDrawnCard(player, drawn)
+		lobby.resolveDrawnCard(player, drawn, "drew a card")
 
 	case PlaceKitten:
 		if err := lobby.assertTurnAndState([]TurnState{AwaitingKittenPlacement}, isPlayerTurn, "place kitten"); err != nil {
@@ -47,6 +49,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		lobby.deck = slices.Insert(lobby.deck, newKittenPosition, ExplodingKitten)
 		lobby.turnState = Normal
 		lobby.setNextPlayerTurn(false)
+		lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d placed the Exploding Kitten back in the deck", playerId)}
 
 	case PlayCard:
 		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "play card"); err != nil {
@@ -74,26 +77,33 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		case Skip:
 			lobby.turnState = Normal
 			lobby.decreaseTurns()
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d played Skip", playerId)}
 		case SeeTheFuture:
 			lobby.turnState = SeeingTheFuture
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d is seeing the future...", playerId)}
 		case AlterTheFuture:
 			lobby.turnState = AlteringTheFuture
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d is altering the future...", playerId)}
 		case Attack:
 			lobby.turnState = Normal
 			lobby.setNextPlayerTurn(true)
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d attacked!", playerId)}
 		case TargetedAttack:
 			lobby.turnState = Normal
 			lobby.setPlayerTurn(true, action.targetedPlayer)
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d targeted Player %d!", playerId, action.targetedPlayer)}
 		case Shuffle:
 			lobby.turnState = Normal
 			lobby.shuffleDeck()
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d shuffled the deck", playerId)}
 		case DrawFromBottom:
 			lobby.turnState = Normal
 			drawn := lobby.removeBottomCard()
-			lobby.resolveDrawnCard(player, drawn)
+			lobby.resolveDrawnCard(player, drawn, "drew from the bottom")
 		case Favor:
 			lobby.turnState = AwaitingFavor
 			lobby.targetedPlayer = action.targetedPlayer
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d asked Player %d for a favor", playerId, action.targetedPlayer)}
 		default:
 			return errors.New("Cannot play that card")
 		}
@@ -117,6 +127,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		}
 		copy(lobby.deck, buffer)
 		lobby.turnState = Normal
+		lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d altered the future", playerId)}
 
 	case GiveFavor:
 		if lobby.turnState != AwaitingFavor || lobby.targetedPlayer != playerId {
@@ -131,6 +142,10 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		requester := lobby.players[lobby.currentPlayerIndex]
 		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
 		requester.Hand = append(requester.Hand, transferredCard)
+		lobby.lastAction = LastAction{
+			Public:  fmt.Sprintf("Player %d gave a card to Player %d", playerId, lobby.currentPlayerIndex),
+			Private: map[int]string{lobby.currentPlayerIndex: fmt.Sprintf("Player %d gave you %s", playerId, transferredCard)},
+		}
 
 	case Combo:
 		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "combo"); err != nil {
@@ -165,8 +180,18 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 				deleteIndex = slices.Index(targetedPlayer.Hand, action.requestedCard)
 			}
 			if deleteIndex != -1 {
-				player.Hand = append(player.Hand, targetedPlayer.Hand[deleteIndex])
+				stolen := targetedPlayer.Hand[deleteIndex]
+				player.Hand = append(player.Hand, stolen)
 				targetedPlayer.Hand = slices.Delete(targetedPlayer.Hand, deleteIndex, deleteIndex+1)
+				lobby.lastAction = LastAction{
+					Public: fmt.Sprintf("Player %d played a %d-card combo on Player %d", playerId, comboSize, action.targetedPlayer),
+					Private: map[int]string{
+						playerId:              fmt.Sprintf("You stole %s from Player %d", stolen, action.targetedPlayer),
+						action.targetedPlayer: fmt.Sprintf("Player %d stole your %s!", playerId, stolen),
+					},
+				}
+			} else {
+				lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d played a %d-card combo on Player %d but got nothing", playerId, comboSize, action.targetedPlayer)}
 			}
 		case 5:
 			if len(lobby.discardPile) == 0 {
@@ -180,6 +205,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 				return errors.New("All 5 cards must be unique")
 			}
 			lobby.turnState = AwaitingDiscardTake
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d played a 5-card combo", playerId)}
 		default:
 			return errors.New("Combos must contain 2, 3, or 5 cards")
 		}
@@ -196,8 +222,10 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			return err
 		}
 		if takeIdx := slices.Index(lobby.discardPile, action.requestedCard); takeIdx != -1 {
-			player.Hand = append(player.Hand, lobby.discardPile[takeIdx])
+			taken := lobby.discardPile[takeIdx]
+			player.Hand = append(player.Hand, taken)
 			lobby.discardPile = slices.Delete(lobby.discardPile, takeIdx, takeIdx+1)
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d took %s from the discard pile", playerId, taken)}
 		} else {
 			return errors.New("Card is not in discard pile!")
 		}
