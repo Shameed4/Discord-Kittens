@@ -17,6 +17,7 @@ var multipliers = map[Card]int{
 	Cat2:           4,
 	Cat3:           4,
 	Cat4:           4,
+	Cat5:           4,
 	FeralCat:       4,
 	Skip:           2,
 	SeeTheFuture:   2,
@@ -40,6 +41,7 @@ const (
 	Cat2
 	Cat3
 	Cat4
+	Cat5
 	FeralCat
 	SeeTheFuture
 	AlterTheFuture
@@ -68,6 +70,8 @@ func (c Card) String() string {
 		return "CAT3"
 	case Cat4:
 		return "CAT4"
+	case Cat5:
+		return "CAT5"
 	case FeralCat:
 		return "FERAL_CAT"
 	case SeeTheFuture:
@@ -93,7 +97,7 @@ func ParseCard(s string) (Card, error) {
 }
 
 func (c Card) isCat() bool {
-	return c == Cat1 || c == Cat2 || c == Cat3 || c == Cat4 || c == FeralCat
+	return c == Cat1 || c == Cat2 || c == Cat3 || c == Cat4 || c == Cat5 || c == FeralCat
 }
 
 // Global state
