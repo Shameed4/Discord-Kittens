@@ -161,6 +161,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		for i, cardIdx := range action.comboIndices {
 			comboCards[i] = player.Hand[cardIdx]
 		}
+		joinedComboCards := strings.Join(cardSliceToStrings(comboCards), "+")
 		switch comboSize {
 		case 2, 3:
 			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
@@ -180,7 +181,6 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			case 3:
 				deleteIndex = slices.Index(targetedPlayer.Hand, action.requestedCard)
 			}
-			joinedComboCards := strings.Join(cardSliceToStrings(comboCards), "+")
 			if deleteIndex != -1 {
 				stolen := targetedPlayer.Hand[deleteIndex]
 				player.Hand = append(player.Hand, stolen)
@@ -190,14 +190,14 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 				if comboSize == 2 {
 					publicAction = fmt.Sprintf("Player %d successfully stole from Player %d using a 2-combo (%s)", playerId, action.targetedPlayer, joinedComboCards)
 				} else {
-					publicAction = fmt.Sprintf("Player %d successfully stole %s from Player %d using a 3-combo (%s)", playerId, stolen.String(), action.targetedPlayer, joinedComboCards)
+					publicAction = fmt.Sprintf("Player %d successfully stole %s from Player %d using a 3-combo (%s)", playerId, stolen, action.targetedPlayer, joinedComboCards)
 				}
 
 				lobby.lastAction = LastAction{
 					Public: publicAction,
 					Private: map[int]string{
 						playerId:              fmt.Sprintf("You stole %s from Player %d using a %d-combo (%s)", stolen, action.targetedPlayer, comboSize, joinedComboCards),
-						action.targetedPlayer: fmt.Sprintf("Player %d stole your %s using a %d-combo (%s)", playerId, stolen.String(), comboSize, joinedComboCards),
+						action.targetedPlayer: fmt.Sprintf("Player %d stole your %s using a %d-combo (%s)", playerId, stolen, comboSize, joinedComboCards),
 					},
 				}
 			} else {
@@ -215,7 +215,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 				return errors.New("All 5 cards must be unique")
 			}
 			lobby.turnState = AwaitingDiscardTake
-			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d played %s", playerId, strings.Join(cardSliceToStrings(comboCards), "+"))}
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d started a 5-combo (%s) and can pick a card from the discard pile", playerId, joinedComboCards)}
 		default:
 			return errors.New("Combos must contain 2, 3, or 5 cards")
 		}
