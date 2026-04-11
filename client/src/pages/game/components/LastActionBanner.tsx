@@ -1,11 +1,12 @@
+// client/src/pages/game/components/LastActionBanner.tsx
 interface LastActionBannerProps {
   lastAction?: string;
 }
 
 export default function LastActionBanner({ lastAction }: LastActionBannerProps) {
-  if (!lastAction) return <div className="h-8" />;
+  if (!lastAction) return null;
   return (
-    <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-full px-5 py-1.5 text-sm font-medium text-center max-w-md">
+    <div className="rounded-full border border-purple-800/60 bg-purple-950/60 px-4 py-1 text-[10px] font-semibold text-purple-200 text-center max-w-[200px] leading-snug">
       {lastAction}
     </div>
   );
