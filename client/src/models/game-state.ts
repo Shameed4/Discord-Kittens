@@ -1,21 +1,26 @@
-import type { CardType, TurnStateType } from './game-enums';
+import type { CardType, TurnState } from './game-enums';
 
 export interface GameState {
-  playerId: number;
-  turnId: number;
-  deckSize: number;
-  players: PlayerState[];
-  turnState: TurnStateType;
-  hand: CardType[];
-  inProgress: boolean
+  playerId:       number;
+  turnId:         number;
+  deckSize:       number;
+  players:        PlayerState[];
+  turnState:      TurnState;
+  hand:           CardType[];
+  inProgress:     boolean;
+  underAttack:    boolean;
+  turnsToTake:    number;
+  targetedPlayer: number;
 
-  future?: CardType[3];
-  err?: string;
+  future?:         CardType[];
+  discardOptions?: CardType[];
+  lastAction?:     string;
+  err?:            string;
 }
 
 export interface PlayerState {
-  id: number;
+  id:        number;
   cardCount: number;
-  isAlive: boolean;
-  isOnline: boolean;
+  isAlive:   boolean;
+  isOnline:  boolean;
 }
