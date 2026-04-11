@@ -40,10 +40,10 @@ describe('getSeatPositions', () => {
     const pos = getSeatPositions(10, 0);
     expect(pos).toHaveLength(10);
     pos.forEach(p => {
-      expect(p.x).toBeGreaterThanOrEqual(-1);
-      expect(p.x).toBeLessThanOrEqual(101);
-      expect(p.y).toBeGreaterThanOrEqual(-1);
-      expect(p.y).toBeLessThanOrEqual(101);
+      expect(p.x).toBeGreaterThanOrEqual(0);
+      expect(p.x).toBeLessThanOrEqual(100);
+      expect(p.y).toBeGreaterThanOrEqual(0);
+      expect(p.y).toBeLessThanOrEqual(100);
     });
   });
 });
