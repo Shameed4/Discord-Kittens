@@ -75,7 +75,7 @@ export default function PlayerSeat({
           height: avatarPx,
           borderRadius: '50%',
           background: 'radial-gradient(circle at 35% 35%, #2e1065, #0d0520)',
-          border: `2px solid ${borderColor}`,
+          border: `${Math.round(2 * seatScale)}px solid ${borderColor}`,
           boxShadow,
           display: 'flex',
           alignItems: 'center',
@@ -87,16 +87,19 @@ export default function PlayerSeat({
         </div>
 
         {/* Online indicator */}
-        <div style={{
-          position: 'absolute',
-          bottom: 0,
-          right: 0,
-          width: dotPx,
-          height: dotPx,
-          borderRadius: '50%',
-          background: isOnline ? '#22c55e' : '#6b7280',
-          border: `${Math.round(2 * seatScale)}px solid #0d0720`,
-        }} />
+        <div
+          title={isOnline ? 'Online' : 'Offline'}
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            right: 0,
+            width: dotPx,
+            height: dotPx,
+            borderRadius: '50%',
+            background: isOnline ? '#22c55e' : '#6b7280',
+            border: `${Math.round(2 * seatScale)}px solid #0d0720`,
+          }}
+        />
 
         {/* Card count badge (opponents only) */}
         {!isLocal && isAlive && gameState.inProgress && (
@@ -174,7 +177,7 @@ function CardFan({ cardCount, seatScale }: { cardCount: number; seatScale: numbe
             transformOrigin: 'bottom center',
             borderRadius: Math.round(4 * seatScale),
             background: 'radial-gradient(ellipse at 35% 35%, #1e1060 0%, #06020f 100%)',
-            border: '1.5px solid #6d28d9',
+            border: `${Math.max(1, Math.round(1.5 * seatScale))}px solid #6d28d9`,
             boxShadow: '1px 1px 4px rgba(0,0,0,0.6)',
             display: 'flex',
             alignItems: 'center',
