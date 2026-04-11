@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.7); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 4px 12px rgba(29, 78, 216, 0.4); }
+  50%      { box-shadow: 0 4px 24px rgba(29, 78, 216, 0.9), 0 0 32px rgba(29, 78, 216, 0.3); }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+
+.animate-glow-pulse {
+  animation: glow-pulse 2s ease-in-out infinite;
+}
