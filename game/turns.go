@@ -13,8 +13,8 @@ func (lobby *Lobby) resolveDrawnCard(player *Player, drawn Card, actionDesc stri
 			lobby.turnState = AwaitingKittenPlacement
 			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s and had to defuse an exploding kitten!", player.Id, actionDesc)}
 		} else {
-			player.IsAlive = false
 			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s and exploded!", player.Id, actionDesc)}
+			lobby.eliminatePlayer(player.Id)
 		}
 	} else {
 		player.Hand = append(player.Hand, drawn)
