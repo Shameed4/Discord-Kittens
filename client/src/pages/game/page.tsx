@@ -13,7 +13,6 @@ import KittenPlacer from './components/KittenPlacer';
 import FavorGiver from './components/FavorGiver';
 import DiscardPicker from './components/DiscardPicker';
 import GameOverOverlay from './components/GameOverOverlay';
-import { isCatCard, isPlayableAlone } from '../../models/game-enums';
 import { getSeatPositions } from './table-utils';
 
 export default function GamePage() {
@@ -89,19 +88,11 @@ export default function GamePage() {
 
   const handleCardClick = (index: number) => {
     const card = hand[index];
-    const isAlreadySelected = selectedIndices.includes(index);
-    if (isAlreadySelected) {
+    if (card === 'EXPLODING_KITTEN') return;
+    if (selectedIndices.includes(index)) {
       setSelectedIndices(selectedIndices.filter((i) => i !== index));
-      return;
-    }
-    if (isPlayableAlone(card)) {
-      setSelectedIndices([index]);
-      return;
-    }
-    if (isCatCard(card)) {
-      const currentlySelected = selectedIndices.map((i) => hand[i]);
-      if (currentlySelected.some(isPlayableAlone)) setSelectedIndices([index]);
-      else setSelectedIndices([...selectedIndices, index]);
+    } else {
+      setSelectedIndices([...selectedIndices, index]);
     }
   };
 
