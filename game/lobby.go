@@ -168,16 +168,18 @@ func (lobby *Lobby) startGame() error {
 	}
 	if numPlayers < 2 {
 		return errors.New("Cannot start lobby - Not enough players")
+	} else if numPlayers > 10 {
+		return errors.New("Cannot start lobby - Too many players")
 	}
 	lobby.livingPlayers = numPlayers
 	lobby.turnState = Normal
 
 	// Create a pool of safe cards
 	var safeDeck []Card
-	for cardType, multiplier := range multipliers {
-		count := numPlayers * multiplier
+	var config = GetDeckConfig(numPlayers)
+	for card, count := range config {
 		for i := 0; i < count; i++ {
-			safeDeck = append(safeDeck, cardType)
+			safeDeck = append(safeDeck, card)
 		}
 	}
 
@@ -201,7 +203,7 @@ func (lobby *Lobby) startGame() error {
 		lobby.deck = append(lobby.deck, ExplodingKitten)
 	}
 
-	for i := 0; i < ExtraDefuses; i++ {
+	for i := 0; i < GetExtraDefuses(numPlayers); i++ {
 		lobby.deck = append(lobby.deck, Defuse)
 	}
 

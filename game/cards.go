@@ -8,27 +8,6 @@ import (
 	"time"
 )
 
-const (
-	ExtraDefuses = 2
-)
-
-var multipliers = map[Card]int{
-	Cat1:           4,
-	Cat2:           4,
-	Cat3:           4,
-	Cat4:           4,
-	Cat5:           4,
-	FeralCat:       4,
-	Skip:           2,
-	SeeTheFuture:   2,
-	AlterTheFuture: 2,
-	Attack:         2,
-	TargetedAttack: 2,
-	Shuffle:        2,
-	DrawFromBottom: 2,
-	Favor:          2,
-}
-
 type Card int
 
 const (
@@ -86,6 +65,68 @@ func (c Card) String() string {
 		return "FAVOR"
 	default:
 		return "UNKNOWN"
+	}
+}
+
+type TieredCardCount struct {
+	Small  int // 2-3 players
+	Medium int // 4-6 players
+	Large  int //7-10 players
+}
+
+var ActionCardTotals = map[Card]TieredCardCount{
+	// The 5 standard cat cards (Tacocat, Hairy Potato, Cattermelon, Rainbow, Beard)
+	Cat1: {Small: 3, Medium: 4, Large: 7},
+	Cat2: {Small: 3, Medium: 4, Large: 7},
+	Cat3: {Small: 3, Medium: 4, Large: 7},
+	Cat4: {Small: 3, Medium: 4, Large: 7},
+	Cat5: {Small: 3, Medium: 4, Large: 7},
+
+	// Special Action Cards
+	FeralCat:       {Small: 2, Medium: 4, Large: 6},
+	Skip:           {Small: 4, Medium: 6, Large: 10},
+	SeeTheFuture:   {Small: 3, Medium: 3, Large: 6},
+	AlterTheFuture: {Small: 2, Medium: 4, Large: 6},
+	Attack:         {Small: 2, Medium: 3, Large: 5},
+	TargetedAttack: {Small: 2, Medium: 3, Large: 5},
+	Shuffle:        {Small: 2, Medium: 4, Large: 6},
+	DrawFromBottom: {Small: 3, Medium: 4, Large: 7},
+	Favor:          {Small: 2, Medium: 4, Large: 6},
+	// Nope:           {Small: 4, Medium: 6, Large: 10},
+}
+
+var DefuseTotals = TieredCardCount{Small: 3, Medium: 7, Large: 10}
+
+// returns a map of cards based on number of players
+func GetDeckConfig(numPlayers int) map[Card]int {
+	deck := make(map[Card]int)
+
+	for card, tiers := range ActionCardTotals {
+		var count int
+
+		switch {
+		case numPlayers <= 3:
+			count = tiers.Small
+		case numPlayers <= 6:
+			count = tiers.Medium
+		default: // 7-10 players
+			count = tiers.Large
+		}
+
+		deck[card] = count
+	}
+
+	return deck
+}
+
+func GetExtraDefuses(numPlayers int) int {
+	switch {
+	case numPlayers <= 3:
+		return DefuseTotals.Small - numPlayers
+	case numPlayers <= 6:
+		return DefuseTotals.Medium - numPlayers
+	default: // 7-10 players
+		return DefuseTotals.Medium - numPlayers
 	}
 }
 
