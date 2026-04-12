@@ -207,6 +207,7 @@ func (lobby *Lobby) startGame() error {
 
 	// Final shuffle
 	lobby.shuffleDeck()
+	lobby.turnsToTake = 1
 	fmt.Printf("\n--- Game Setup Complete! Deck has %d cards. ---\n", len(lobby.deck))
 	return nil
 }
