@@ -8,6 +8,23 @@
       "mode": "auto",
       "program": "${workspaceFolder}/game",
       "cwd": "${workspaceFolder}/game"
+    },
+    {
+      "name": "Run Frontend (Vite)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}/client",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Run Frontend + Backend",
+      "configurations": ["Debug Go Server", "Run Frontend (Vite)"],
+      "stopAll": true
     }
   ]
 }
