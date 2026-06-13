@@ -9,7 +9,7 @@ import (
 func (lobby *Lobby) resolveDrawnCard(player *Player, drawn Card, actionDesc string) {
 	if drawn == ExplodingKitten {
 		if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
-			player.Hand = slices.Delete(player.Hand, defuseIndex, defuseIndex+1)
+			lobby.discardCard(player, defuseIndex)
 			lobby.turnState = AwaitingKittenPlacement
 			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s and had to defuse an exploding kitten!", player.Id, actionDesc)}
 		} else {
