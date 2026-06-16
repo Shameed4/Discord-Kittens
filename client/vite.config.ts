@@ -9,6 +9,7 @@ export default defineConfig({
     environment: 'jsdom',
   },
   server: {
+    allowedHosts: true,
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
