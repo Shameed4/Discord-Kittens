@@ -98,10 +98,12 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// request to join lobby
 	username := r.URL.Query().Get("username")
+	userId := r.URL.Query().Get("userId")
 	gameStateChan := make(chan GameState)
 	joinResultChan := make(chan JoinResponse)
 	joinReq := JoinRequest{
 		Name:   username,
+		UserId: userId,
 		Send:   gameStateChan,
 		Result: joinResultChan,
 	}

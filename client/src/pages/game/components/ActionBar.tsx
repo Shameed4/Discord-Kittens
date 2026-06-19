@@ -47,7 +47,7 @@ export default function ActionBar({
     const waitingFor = players.find((p) => p.id === turnId);
     return (
       <div className="mt-3 flex justify-center text-xs font-semibold tracking-widest text-purple-800 uppercase">
-        {waitingFor ? `Waiting for Player ${waitingFor.id}…` : ''}
+        {waitingFor ? `Waiting for ${waitingFor.name}…` : ''}
       </div>
     );
   }

@@ -11,15 +11,15 @@ func (lobby *Lobby) resolveDrawnCard(player *Player, drawn Card, actionDesc stri
 		if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
 			lobby.discardCard(player, defuseIndex)
 			lobby.turnState = AwaitingKittenPlacement
-			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s and had to defuse an exploding kitten!", player.Id, actionDesc)}
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("%s %s and had to defuse an exploding kitten!", player.Name, actionDesc)}
 		} else {
-			lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s and exploded!", player.Id, actionDesc)}
+			lobby.lastAction = LastAction{Public: fmt.Sprintf("%s %s and exploded!", player.Name, actionDesc)}
 			lobby.eliminatePlayer(player.Id)
 		}
 	} else {
 		player.Hand = append(player.Hand, drawn)
 		lobby.decreaseTurns()
-		lobby.lastAction = LastAction{Public: fmt.Sprintf("Player %d %s", player.Id, actionDesc)}
+		lobby.lastAction = LastAction{Public: fmt.Sprintf("%s %s", player.Name, actionDesc)}
 	}
 }
 

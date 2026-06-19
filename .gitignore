@@ -1,2 +1,5 @@
 .superpowers/
 .env
+
+# Go build output
+game/game

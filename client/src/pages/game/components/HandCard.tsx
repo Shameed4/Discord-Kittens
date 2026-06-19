@@ -91,7 +91,7 @@ export default function HandCard({ card, index, isSelected, isPlayable, onClick 
       ].join(' ')}
     >
       <span className="text-lg leading-none">{CARD_EMOJI[card]}</span>
-      <span className="hidden sm:block text-[7px] font-black uppercase tracking-tight px-0.5 leading-tight text-center text-white/90">
+      <span className="block text-[7px] font-black uppercase tracking-tight px-0.5 leading-tight text-center text-white/90">
         {SHORT_NAME[card]}
       </span>
       {isCat && (

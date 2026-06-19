@@ -45,6 +45,7 @@ func (t TurnState) String() string {
 type Player struct {
 	Hand     []Card
 	Id       int
+	UserId   string // stable cross-session identity (e.g. Discord user id); used to reconnect returning players
 	Name     string
 	IsAlive  bool
 	IsOnline bool
@@ -87,6 +88,7 @@ type LastAction struct {
 
 type JoinRequest struct {
 	Name   string
+	UserId string
 	Send   chan GameState
 	Result chan JoinResponse
 }
@@ -254,35 +256,69 @@ func (lobby *Lobby) inProgress() bool {
 	return lobby.turnState != NotStarted && lobby.turnState != GameOver
 }
 
+func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
+	// Reconnect a returning player by their stable id. This works even mid-game
+	// (and after they quit) since the player already has a seat at the table.
+	if joinReq.UserId != "" {
+		for _, p := range lobby.players {
+			if p.UserId != joinReq.UserId {
+				continue
+			}
+			// Drop a still-live duplicate connection so its writer goroutine
+			// exits; in the normal quit-then-rejoin case Send is already closed.
+			if p.IsOnline {
+				close(p.Send)
+			}
+			p.IsOnline = true
+			p.Send = joinReq.Send
+			if joinReq.Name != "" {
+				p.Name = joinReq.Name
+			}
+			joinReq.Result <- JoinResponse{
+				success:  true,
+				playerId: p.Id,
+			}
+			lobby.broadcastGameState()
+			return
+		}
+	}
+
+	// Only returning players may join once the game has started.
+	if lobby.inProgress() {
+		joinReq.Result <- JoinResponse{
+			success: false,
+			error:   "Game in progress",
+		}
+		return
+	}
+
+	newId := len(lobby.players)
+	name := joinReq.Name
+	if name == "" {
+		name = fmt.Sprintf("Player %d", newId)
+	}
+	newPlayer := &Player{
+		Id:       newId,
+		UserId:   joinReq.UserId,
+		Name:     name,
+		Send:     joinReq.Send,
+		IsOnline: true,
+		IsAlive:  true,
+		Hand:     make([]Card, 0),
+	}
+	joinReq.Result <- JoinResponse{
+		success:  true,
+		playerId: newId,
+	}
+	lobby.players = append(lobby.players, newPlayer)
+	lobby.broadcastGameState()
+}
+
 func (lobby *Lobby) run() {
 	for {
 		select {
 		case joinReq := <-lobby.JoinQueue:
-			if lobby.inProgress() {
-				joinReq.Result <- JoinResponse{
-					success: false,
-					error:   "Game in progress",
-				}
-			}
-			newId := len(lobby.players)
-			name := joinReq.Name
-			if name == "" {
-				name = fmt.Sprintf("Player %d", newId)
-			}
-			newPlayer := &Player{
-				Id:       newId,
-				Name:     name,
-				Send:     joinReq.Send,
-				IsOnline: true,
-				IsAlive:  true,
-				Hand:     make([]Card, 0),
-			}
-			joinReq.Result <- JoinResponse{
-				success:  true,
-				playerId: newId, // TODO: make this resistant to players exiting
-			}
-			lobby.players = append(lobby.players, newPlayer)
-			lobby.broadcastGameState()
+			lobby.handleJoin(joinReq)
 
 		case actionReq := <-lobby.ActionQueue:
 			if err := lobby.takePlayerAction(actionReq); err != nil {

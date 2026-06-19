@@ -53,4 +53,12 @@ export function getUsername(): string | null {
   return auth.user.global_name ?? auth.user.username;
 }
 
+// Stable Discord user id for the authenticated user, or null when running
+// outside an authenticated Discord context. The backend uses this to reconnect
+// a player to their existing seat when they rejoin a lobby they left.
+export function getUserId(): string | null {
+  if (!auth) return null;
+  return auth.user.id;
+}
+
 export { discordSdk };

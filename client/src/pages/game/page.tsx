@@ -14,7 +14,7 @@ import FavorGiver from './components/FavorGiver';
 import DiscardPicker from './components/DiscardPicker';
 import GameOverOverlay from './components/GameOverOverlay';
 import { getSeatPositions } from './table-utils';
-import { getUsername, setupDiscordSdk } from '../../discord/sdk';
+import { getUsername, getUserId, setupDiscordSdk } from '../../discord/sdk';
 
 export default function GamePage() {
   const navigate = useNavigate();
@@ -48,6 +48,8 @@ export default function GamePage() {
       const params = new URLSearchParams({ lobby: lobbyName });
       const username = getUsername();
       if (username) params.set('username', username);
+      const userId = getUserId();
+      if (userId) params.set('userId', userId);
       socket = new WebSocket(
         `${protocol}//${window.location.host}/ws?${params.toString()}`,
       );
@@ -96,6 +98,8 @@ export default function GamePage() {
     (turnState === 'NORMAL' || turnState === 'SEEING_THE_FUTURE') &&
     !amFavorTarget;
 
+  const turnPlayerName =
+    players.find((p) => p.id === turnId)?.name ?? `Player ${turnId}`;
   const localPlayerIndex = players.findIndex((p) => p.id === playerId);
   const seatPositions = getSeatPositions(
     players.length,
@@ -164,7 +168,7 @@ export default function GamePage() {
             {inProgress && (
               <div className="flex items-center gap-1.5 rounded-full border border-yellow-700/50 bg-yellow-950/60 px-3 py-1 text-[10px] font-bold tracking-widest text-yellow-400 uppercase">
                 <span className="animate-pulse-dot h-1.5 w-1.5 rounded-full bg-yellow-400" />
-                {isMyTurn ? 'Your turn' : `Player ${turnId}'s turn`}
+                {isMyTurn ? 'Your turn' : `${turnPlayerName}'s turn`}
               </div>
             )}
 
@@ -326,7 +330,7 @@ export default function GamePage() {
           <div className="absolute inset-0 z-50 flex items-center justify-center">
             <FavorGiver
               hand={hand}
-              requesterPlayerId={turnId}
+              requesterName={turnPlayerName}
               onGive={(cardIndex) =>
                 sendAction({ action: 'GIVE_FAVOR', useCardIndex: cardIndex })
               }

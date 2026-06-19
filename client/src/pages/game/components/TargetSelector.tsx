@@ -26,7 +26,7 @@ export default function TargetSelector({ players, currentPlayerId, selected, onS
               : 'bg-gray-700 border-gray-600 text-white hover:bg-gray-600'}
           `}
         >
-          Player {p.id}
+          {p.name}
         </button>
       ))}
     </div>
