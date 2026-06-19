@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+	"github.com/joho/godotenv"
 )
 
 type CreateLobbyRequest struct {
@@ -96,9 +97,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	defer ws.Close()
 
 	// request to join lobby
+	username := r.URL.Query().Get("username")
 	gameStateChan := make(chan GameState)
 	joinResultChan := make(chan JoinResponse)
 	joinReq := JoinRequest{
+		Name:   username,
 		Send:   gameStateChan,
 		Result: joinResultChan,
 	}
@@ -178,11 +181,16 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	if err := godotenv.Load("../.env"); err != nil {
+		log.Printf("No .env file loaded: %v", err)
+	}
+
 	lobby := NewLobby()
 	lobbies["test"] = lobby
 	go lobby.run()
 
 	http.HandleFunc("/lobby", handleCreateLobby)
 	http.HandleFunc("/ws", handleWebSocket)
+	http.HandleFunc("/token", handleToken)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }

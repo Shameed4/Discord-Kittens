@@ -20,6 +20,7 @@ export interface GameState {
 
 export interface PlayerState {
   id:        number;
+  name:      string;
   cardCount: number;
   isAlive:   boolean;
   isOnline:  boolean;

@@ -14,6 +14,7 @@ import FavorGiver from './components/FavorGiver';
 import DiscardPicker from './components/DiscardPicker';
 import GameOverOverlay from './components/GameOverOverlay';
 import { getSeatPositions } from './table-utils';
+import { getUsername, setupDiscordSdk } from '../../discord/sdk';
 
 export default function GamePage() {
   const navigate = useNavigate();
@@ -32,23 +33,40 @@ export default function GamePage() {
       navigate('/');
       return;
     }
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(
-      `${protocol}//${window.location.host}/ws?lobby=${encodeURIComponent(lobbyName)}`,
-    );
-    ws.current = socket;
-    socket.onopen = () => setConnectionStatus(ConnectionStatus.Connected);
-    socket.onmessage = (event) => {
-      try {
-        setGameState(JSON.parse(event.data) as GameState);
-        setSelectedIndices([]);
-      } catch (e) {
-        console.error('Failed to parse game state:', e);
-      }
-    };
-    socket.onclose = () => setConnectionStatus(ConnectionStatus.Disconnected);
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+
+    (async () => {
+      // Wait for the Discord auth handshake to resolve so getUsername() returns
+      // the real name. The backend locks in the name at join time, so connecting
+      // before auth completes would permanently leave us as "Player N". Resolves
+      // to null (and we join nameless) outside a Discord context.
+      await setupDiscordSdk().catch(() => null);
+      if (cancelled) return;
+
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const params = new URLSearchParams({ lobby: lobbyName });
+      const username = getUsername();
+      if (username) params.set('username', username);
+      socket = new WebSocket(
+        `${protocol}//${window.location.host}/ws?${params.toString()}`,
+      );
+      ws.current = socket;
+      socket.onopen = () => setConnectionStatus(ConnectionStatus.Connected);
+      socket.onmessage = (event) => {
+        try {
+          setGameState(JSON.parse(event.data) as GameState);
+          setSelectedIndices([]);
+        } catch (e) {
+          console.error('Failed to parse game state:', e);
+        }
+      };
+      socket.onclose = () => setConnectionStatus(ConnectionStatus.Disconnected);
+    })();
+
     return () => {
-      socket.close();
+      cancelled = true;
+      socket?.close();
       ws.current = null;
     };
   }, [lobbyName, navigate]);

@@ -24,7 +24,7 @@ export default function PlayerSeat({
   seatScale,
   style,
 }: PlayerSeatProps) {
-  const { id, cardCount, isAlive, isOnline } = playerState;
+  const { id, name, cardCount, isAlive, isOnline } = playerState;
   const isLocal = id === gameState.playerId;
   const isTurn = id === gameState.turnId && isAlive && gameState.inProgress;
 
@@ -133,7 +133,7 @@ export default function PlayerSeat({
         whiteSpace: 'nowrap',
         letterSpacing: '0.3px',
       }}>
-        {isLocal ? 'You' : `Player ${id}`}
+        {isLocal ? `${name} (You)` : name}
         {isTurn ? ' ⚡' : ''}
       </div>
     </div>

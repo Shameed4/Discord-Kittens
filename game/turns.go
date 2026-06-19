@@ -131,6 +131,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{
 			Id:        player.Id,
+			Name:      player.Name,
 			CardCount: len(player.Hand),
 			IsAlive:   player.IsAlive,
 			IsOnline:  player.IsOnline,

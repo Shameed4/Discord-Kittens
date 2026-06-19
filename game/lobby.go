@@ -45,6 +45,7 @@ func (t TurnState) String() string {
 type Player struct {
 	Hand     []Card
 	Id       int
+	Name     string
 	IsAlive  bool
 	IsOnline bool
 
@@ -52,10 +53,11 @@ type Player struct {
 }
 
 type PlayerGameState struct {
-	Id        int  `json:"id"`
-	CardCount int  `json:"cardCount"`
-	IsAlive   bool `json:"isAlive"`
-	IsOnline  bool `json:"isOnline"`
+	Id        int    `json:"id"`
+	Name      string `json:"name"`
+	CardCount int    `json:"cardCount"`
+	IsAlive   bool   `json:"isAlive"`
+	IsOnline  bool   `json:"isOnline"`
 }
 
 type GameState struct {
@@ -84,6 +86,7 @@ type LastAction struct {
 }
 
 type JoinRequest struct {
+	Name   string
 	Send   chan GameState
 	Result chan JoinResponse
 }
@@ -262,8 +265,13 @@ func (lobby *Lobby) run() {
 				}
 			}
 			newId := len(lobby.players)
+			name := joinReq.Name
+			if name == "" {
+				name = fmt.Sprintf("Player %d", newId)
+			}
 			newPlayer := &Player{
 				Id:       newId,
+				Name:     name,
 				Send:     joinReq.Send,
 				IsOnline: true,
 				IsAlive:  true,
