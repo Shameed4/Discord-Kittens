@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Backend (Go)",
+      "type": "shell",
+      "command": "go run .",
+      "options": { "cwd": "${workspaceFolder}/game" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "group": "dev", "panel": "dedicated", "reveal": "always" }
+    },
+    {
+      "label": "Frontend (Vite)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/client" },
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "group": "dev", "panel": "dedicated", "reveal": "always" }
+    },
+    {
+      "label": "Cloudflared Tunnel",
+      "type": "shell",
+      "command": "cloudflared tunnel --url http://localhost:5173",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "group": "dev", "panel": "dedicated", "reveal": "always" }
+    },
+    {
+      "label": "Dev: All (Frontend + Backend + Tunnel)",
+      "dependsOn": ["Backend (Go)", "Frontend (Vite)", "Cloudflared Tunnel"],
+      "dependsOrder": "parallel",
+      "problemMatcher": [],
+      "group": { "kind": "build", "isDefault": true }
+    }
+  ]
+}
