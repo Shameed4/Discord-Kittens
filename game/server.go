@@ -79,14 +79,26 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// find if lobby exists
+	// Discord auto-join passes create=1 so the instance lobby is created on the
+	// fly; the website "join" flow omits it and still 404s on a missing lobby.
+	create := r.URL.Query().Get("create") == "1"
+
+	// find if lobby exists, creating it atomically when auto-create is requested
+	// so simultaneous joiners can't double-create the same lobby
 	lobbiesMutex.Lock()
 	lobby, exists := lobbies[lobbyName]
-	lobbiesMutex.Unlock()
 	if !exists {
-		http.Error(w, "Lobby not found. Create it first.", http.StatusNotFound)
-		return
+		if !create {
+			lobbiesMutex.Unlock()
+			http.Error(w, "Lobby not found. Create it first.", http.StatusNotFound)
+			return
+		}
+		lobby = NewLobby()
+		lobbies[lobbyName] = lobby
+		go lobby.run()
+		log.Printf("Lobby auto-created: %s", lobbyName)
 	}
+	lobbiesMutex.Unlock()
 
 	// upgrade the connection
 	ws, err := upgrader.Upgrade(w, r, nil)

@@ -1,25 +1,41 @@
 // Import the SDK
 import { DiscordSDK } from '@discord/embedded-app-sdk';
 
-// Instantiate the SDK
-const discordSdk = new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID);
+function isDiscordActivity(): boolean {
+  return new URLSearchParams(window.location.search).has('frame_id');
+}
+
+// Instantiate the SDK only inside a Discord activity.
+const discordSdk = isDiscordActivity()
+  ? new DiscordSDK(import.meta.env.VITE_DISCORD_CLIENT_ID)
+  : null;
+
+// Shape of a resolved authenticate() call.
+type DiscordAuth = Awaited<
+  ReturnType<NonNullable<typeof discordSdk>['commands']['authenticate']>
+>;
 
 // The authenticated session, populated once setupDiscordSdk() resolves.
-export let auth: Awaited<
-  ReturnType<typeof discordSdk.commands.authenticate>
-> | null = null;
+export let auth: DiscordAuth | null = null;
+
+// Instance id available as soon as sdk is instantiated
+export function getInstanceId(): string | null {
+  return discordSdk?.instanceId || null;
+}
 
 // Cached so the handshake runs exactly once even though both main.tsx (eager
 // kickoff) and the game page (await-before-connect) call it. Callers share the
 // same promise and therefore the same `auth` result.
-let setupPromise: Promise<typeof auth> | null = null;
+let setupPromise: Promise<DiscordAuth | null> | null = null;
 
-export function setupDiscordSdk() {
-  if (!setupPromise) setupPromise = doSetupDiscordSdk();
-  return setupPromise;
+export function setupDiscordSdk(): Promise<DiscordAuth | null> {
+  return (setupPromise ??= doSetupDiscordSdk());
 }
 
-async function doSetupDiscordSdk() {
+async function doSetupDiscordSdk(): Promise<DiscordAuth | null> {
+  // Outside a Discord activity there is no SDK and no auth to establish.
+  if (!discordSdk) return null;
+
   // Wait for the host (Discord client) to be ready
   await discordSdk.ready();
 

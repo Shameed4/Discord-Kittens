@@ -14,12 +14,20 @@ import FavorGiver from './components/FavorGiver';
 import DiscardPicker from './components/DiscardPicker';
 import GameOverOverlay from './components/GameOverOverlay';
 import { getSeatPositions } from './table-utils';
-import { getUsername, getUserId, setupDiscordSdk } from '../../discord/sdk';
+import {
+  getUsername,
+  getUserId,
+  getInstanceId,
+  setupDiscordSdk,
+} from '../../discord/sdk';
 
 export default function GamePage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const lobbyName = location.state?.lobbyName || '';
+  // In Discord, auto create/join lobby based on instance id
+  const discordInstanceId = getInstanceId();
+  const lobbyName = location.state?.lobbyName || discordInstanceId || '';
+  const autoCreate = !location.state?.lobbyName && Boolean(discordInstanceId);
 
   const ws = useRef<WebSocket | null>(null);
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -46,6 +54,7 @@ export default function GamePage() {
 
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const params = new URLSearchParams({ lobby: lobbyName });
+      if (autoCreate) params.set('create', '1');
       const username = getUsername();
       if (username) params.set('username', username);
       const userId = getUserId();
@@ -71,7 +80,7 @@ export default function GamePage() {
       socket?.close();
       ws.current = null;
     };
-  }, [lobbyName, navigate]);
+  }, [lobbyName, autoCreate, navigate]);
 
   function sendAction(action: ActionRequest) {
     if (ws.current?.readyState === WebSocket.OPEN)
