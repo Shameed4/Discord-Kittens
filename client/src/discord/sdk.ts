@@ -1,5 +1,5 @@
 // Import the SDK
-import { DiscordSDK } from '@discord/embedded-app-sdk';
+import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
 
 function isDiscordActivity(): boolean {
   return new URLSearchParams(window.location.search).has('frame_id');
@@ -38,6 +38,15 @@ async function doSetupDiscordSdk(): Promise<DiscordAuth | null> {
 
   // Wait for the host (Discord client) to be ready
   await discordSdk.ready();
+
+  // Lock mobile to landscape (no-op / unsupported on desktop; harmless).
+  try {
+    await discordSdk.commands.setOrientationLockState({
+      lock_state: Common.OrientationLockStateTypeObject.LANDSCAPE,
+    });
+  } catch {
+    // Older clients or desktop may not support orientation locking.
+  }
 
   // Authorize with Discord to obtain a short-lived OAuth2 code
   const { code } = await discordSdk.commands.authorize({

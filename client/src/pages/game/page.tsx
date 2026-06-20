@@ -129,7 +129,9 @@ export default function GamePage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center gap-3 overflow-hidden bg-[#0d0720] p-3">
+    <div className="flex h-screen overflow-hidden bg-[#0d0720]">
+      {/* Main game area: table on top, hand at the bottom */}
+      <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-3">
       {/* ── Round table ── */}
       {/*
         Outer div is a square container. The felt circle is inset by 15% on each
@@ -140,8 +142,8 @@ export default function GamePage() {
       <div
         style={{
           position: 'relative',
-          width: 'min(min(90vw, 65vh), 560px)',
-          height: 'min(min(90vw, 65vh), 560px)',
+          width: 'min(62vw, 620px)',
+          height: 'min(46vh, 360px)',
         }}
       >
         {/* Felt circle */}
@@ -294,6 +296,7 @@ export default function GamePage() {
               gameState={gameState}
               playerIndex={idx}
               seatScale={seatScale}
+              mirrored={pos.x > 50}
               style={{
                 position: 'absolute',
                 left: `${pos.x}%`,
@@ -397,8 +400,9 @@ export default function GamePage() {
       {turnState === 'GAME_OVER' && (
         <GameOverOverlay players={players} onLeave={handleLeave} />
       )}
+      </div>
 
-      {/* Game log */}
+      {/* Game log sidebar */}
       <GameLog log={gameState.log ?? []} />
 
       {/* Connection status badge */}
