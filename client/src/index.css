@@ -1,5 +1,35 @@
 @import "tailwindcss";
 
+/*
+  Mobile safe-area insets (notches, status bars, home indicators).
+  Prefer Discord's injected variables on mobile clients, falling back to the
+  standard env() values for iOS/web testing outside of Discord.
+  https://docs.discord.com/developers/activities/development-guides/mobile
+*/
+:root {
+  --sait: var(--discord-safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --saib: var(--discord-safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --sail: var(--discord-safe-area-inset-left, env(safe-area-inset-left, 0px));
+  --sair: var(--discord-safe-area-inset-right, env(safe-area-inset-right, 0px));
+}
+
+/* Pages size themselves to #root (h-full), so the insets here keep all
+   content out of the unsafe regions. The dark padding letterboxes the edges. */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+#root {
+  box-sizing: border-box;
+  padding-top: var(--sait);
+  padding-bottom: var(--saib);
+  padding-left: var(--sail);
+  padding-right: var(--sair);
+  background: #0d0720;
+}
+
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; transform: scale(1); }
   50%       { opacity: 0.4; transform: scale(0.7); }

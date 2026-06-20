@@ -42,7 +42,7 @@ export default function HomePage() {
   };
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100 font-sans text-gray-800">
+    <div className="flex min-h-full flex-col items-center justify-center bg-gray-100 font-sans text-gray-800">
       <div className="mb-8 flex w-87.5 flex-col gap-4 rounded-lg bg-white p-6 shadow-sm">
         {/* Create Input Group */}
         <div className="flex gap-2">

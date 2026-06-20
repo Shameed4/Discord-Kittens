@@ -92,7 +92,7 @@ export default function GamePage() {
 
   if (!gameState) {
     return (
-      <div className="flex h-screen items-center justify-center bg-[#0d0720] text-xs font-bold tracking-widest text-purple-500 uppercase">
+      <div className="flex h-full items-center justify-center bg-[#0d0720] text-xs font-bold tracking-widest text-purple-500 uppercase">
         {connectionStatus}
       </div>
     );
@@ -129,7 +129,7 @@ export default function GamePage() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0d0720]">
+    <div className="flex h-full overflow-hidden bg-[#0d0720]">
       {/* Main game area: table on top, hand at the bottom */}
       <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-3">
       {/* ── Round table ── */}
@@ -407,7 +407,13 @@ export default function GamePage() {
 
       {/* Connection status badge */}
       {connectionStatus !== ConnectionStatus.Connected && (
-        <div className="fixed top-2 right-2 rounded-full border border-purple-800 bg-purple-950/90 px-3 py-1 text-xs font-semibold text-purple-300">
+        <div
+          className="fixed rounded-full border border-purple-800 bg-purple-950/90 px-3 py-1 text-xs font-semibold text-purple-300"
+          style={{
+            top: 'calc(0.5rem + var(--sait))',
+            right: 'calc(0.5rem + var(--sair))',
+          }}
+        >
           {connectionStatus}
         </div>
       )}
