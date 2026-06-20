@@ -255,6 +255,7 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			return errors.New("Card is not in discard pile!")
 		}
 		lobby.turnState = Normal
+		lobby.decreaseTurns()
 	}
 	return nil
 }
