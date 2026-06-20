@@ -22,7 +22,8 @@
     {
       "label": "Cloudflared Tunnel",
       "type": "shell",
-      "command": "cloudflared tunnel --url http://localhost:5173",
+      "command": "cloudflared tunnel --url http://localhost:5173 2>&1 | ForEach-Object { $_; if ($_ -match 'https://[a-z0-9-]+\\.trycloudflare\\.com') { Set-Clipboard $matches[0]; Write-Host ('=== Tunnel URL copied to clipboard: ' + $matches[0]) -ForegroundColor Green } }",
+      "options": { "shell": { "executable": "powershell.exe", "args": ["-NoProfile", "-Command"] } },
       "isBackground": true,
       "problemMatcher": [],
       "presentation": { "group": "dev", "panel": "dedicated", "reveal": "always" }
