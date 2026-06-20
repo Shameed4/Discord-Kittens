@@ -6,20 +6,32 @@ import (
 	"slices"
 )
 
+const maxLogEntries = 200
+
+// recordAction sets the most-recent action (for the banner) and appends it to
+// the append-only game log, trimming the log to the last maxLogEntries entries.
+func (lobby *Lobby) recordAction(a LastAction) {
+	lobby.lastAction = a
+	lobby.actionLog = append(lobby.actionLog, a)
+	if len(lobby.actionLog) > maxLogEntries {
+		lobby.actionLog = lobby.actionLog[len(lobby.actionLog)-maxLogEntries:]
+	}
+}
+
 func (lobby *Lobby) resolveDrawnCard(player *Player, drawn Card, actionDesc string) {
 	if drawn == ExplodingKitten {
 		if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
 			lobby.discardCard(player, defuseIndex)
 			lobby.turnState = AwaitingKittenPlacement
-			lobby.lastAction = LastAction{Public: fmt.Sprintf("%s %s and had to defuse an exploding kitten!", player.Name, actionDesc)}
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s %s and had to defuse an exploding kitten!", player.Name, actionDesc)})
 		} else {
-			lobby.lastAction = LastAction{Public: fmt.Sprintf("%s %s and exploded!", player.Name, actionDesc)}
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s %s and exploded!", player.Name, actionDesc)})
 			lobby.eliminatePlayer(player.Id)
 		}
 	} else {
 		player.Hand = append(player.Hand, drawn)
 		lobby.decreaseTurns()
-		lobby.lastAction = LastAction{Public: fmt.Sprintf("%s %s", player.Name, actionDesc)}
+		lobby.recordAction(LastAction{Public: fmt.Sprintf("%s %s", player.Name, actionDesc)})
 	}
 }
 
@@ -86,11 +98,17 @@ func (lobby *Lobby) assertPlayerExistsAndAlive(playerId int) error {
 
 // --- State Broadcasting ---
 
-func (lobby *Lobby) lastActionFor(playerIdx int) string {
-	if msg, ok := lobby.lastAction.Private[playerIdx]; ok {
+// resolveAction picks the personalized message for a player, falling back to
+// the public one.
+func resolveAction(a LastAction, playerIdx int) string {
+	if msg, ok := a.Private[playerIdx]; ok {
 		return msg
 	}
-	return lobby.lastAction.Public
+	return a.Public
+}
+
+func (lobby *Lobby) lastActionFor(playerIdx int) string {
+	return resolveAction(lobby.lastAction, playerIdx)
 }
 
 func (lobby *Lobby) getGameState(playerIdx int) GameState {
@@ -113,6 +131,10 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 			}
 		}
 	}
+	log := make([]string, len(lobby.actionLog))
+	for i, a := range lobby.actionLog {
+		log[i] = resolveAction(a, playerIdx)
+	}
 	res := GameState{
 		PlayerId:    playerIdx,
 		TurnId:      lobby.currentPlayerIndex,
@@ -127,6 +149,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		TargetedPlayer: lobby.targetedPlayer,
 		DiscardOptions: discardOptions,
 		LastAction:     lobby.lastActionFor(playerIdx),
+		Log:            log,
 	}
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{

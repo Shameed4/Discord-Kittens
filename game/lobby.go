@@ -76,6 +76,7 @@ type GameState struct {
 	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
 	TargetedPlayer int      `json:"targetedPlayer"`           // for actions that require another player's response
 	LastAction     string   `json:"lastAction,omitempty"`
+	Log            []string `json:"log,omitempty"`
 	Err            string   `json:"err,omitempty"`
 }
 
@@ -148,6 +149,7 @@ type Lobby struct {
 	underAttack        bool
 	discardPile        []Card
 	lastAction         LastAction
+	actionLog          []LastAction
 
 	targetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
 
@@ -178,6 +180,7 @@ func (lobby *Lobby) startGame() error {
 	}
 	lobby.livingPlayers = numPlayers
 	lobby.turnState = Normal
+	lobby.actionLog = nil
 
 	// Create a pool of safe cards
 	var safeDeck []Card
