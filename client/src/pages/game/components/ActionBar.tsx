@@ -29,7 +29,7 @@ export default function ActionBar({
   // Not started
   if (!inProgress) {
     return (
-      <div className="mt-4 flex justify-center">
+      <div className="flex justify-center">
         <button
           onClick={() => onAction({ action: 'START_GAME' })}
           className="rounded-full border border-green-400/30 bg-gradient-to-r from-green-600 to-emerald-700 px-8 py-2.5 font-bold text-white shadow-lg transition-all hover:from-green-500 hover:to-emerald-600"
@@ -46,7 +46,7 @@ export default function ActionBar({
   ) {
     const waitingFor = players.find((p) => p.id === turnId);
     return (
-      <div className="mt-3 flex justify-center text-xs font-semibold tracking-widest text-purple-800 uppercase">
+      <div className="flex justify-center text-center text-xs font-semibold tracking-widest break-words text-purple-800 uppercase">
         {waitingFor ? `Waiting for ${waitingFor.name}…` : ''}
       </div>
     );
@@ -125,7 +125,7 @@ export default function ActionBar({
   };
 
   return (
-    <div className="mt-3 flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center gap-2">
       <div className="flex flex-wrap justify-center gap-3">
         {/* Draw button */}
         <button
@@ -154,7 +154,7 @@ export default function ActionBar({
 
         {/* Invalid selection hint */}
         {selectedIndices.length > 0 && !singleAction && !validCombo && (
-          <span className="self-center text-xs font-semibold text-purple-700">
+          <span className="max-w-[8rem] self-center text-center text-xs font-semibold text-purple-700">
             Select 2-3 matching cards, or 5 unique cards for a combo
           </span>
         )}

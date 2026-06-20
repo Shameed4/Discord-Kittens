@@ -176,14 +176,6 @@ export default function GamePage() {
 
           {/* Center content */}
           <div className="relative z-10 flex max-w-full flex-col items-center gap-2 px-3">
-            {/* Turn indicator */}
-            {inProgress && (
-              <div className="flex items-center gap-1.5 rounded-full border border-yellow-700/50 bg-yellow-950/60 px-3 py-1 text-[10px] font-bold tracking-widest text-yellow-400 uppercase">
-                <span className="animate-pulse-dot h-1.5 w-1.5 rounded-full bg-yellow-400" />
-                {isMyTurn ? 'Your turn' : `${turnPlayerName}'s turn`}
-              </div>
-            )}
-
             <LastActionBanner lastAction={gameState.lastAction} />
 
             {/* Deck + discard piles */}
@@ -367,9 +359,15 @@ export default function GamePage() {
           )}
       </div>
 
-      {/* ── Hand zone (below table) ── */}
-      <div className="flex w-full max-w-lg flex-col items-center gap-2 px-2">
-        <div className="flex flex-wrap justify-center gap-1.5 overflow-x-auto pb-1">
+      {/* ── Hand zone (below table) — cards and actions side by side ── */}
+      {/*
+        Fixed 2:1 proportions (both flex items have basis 0 via `flex-[2]`/`flex-1`
+        + min-w-0), so the card area keeps the same width no matter which buttons or
+        hints the action bar is showing — cards never shift around. Cards wrap to a
+        second row when the hand is large rather than getting clipped.
+      */}
+      <div className="flex w-full max-w-4xl items-center justify-center gap-4 px-2">
+        <div className="flex min-w-0 flex-[2] flex-wrap content-center justify-center gap-1.5 pb-1">
           {hand.map((card, i) => (
             <HandCard
               key={i}
@@ -386,14 +384,16 @@ export default function GamePage() {
             </span>
           )}
         </div>
-        <ActionBar
-          gameState={gameState}
-          selectedIndices={selectedIndices}
-          onAction={(action) => {
-            sendAction(action);
-            setSelectedIndices([]);
-          }}
-        />
+        <div className="flex min-w-0 flex-1 justify-center">
+          <ActionBar
+            gameState={gameState}
+            selectedIndices={selectedIndices}
+            onAction={(action) => {
+              sendAction(action);
+              setSelectedIndices([]);
+            }}
+          />
+        </div>
       </div>
 
       {/* Game over overlay */}

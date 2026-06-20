@@ -59,7 +59,7 @@ export default function PlayerSeat({
 
   const avatarBlock = (
     <div style={{ position: 'relative' }}>
-      <div style={{
+      <div className={isTurn ? 'animate-turn-flash' : undefined} style={{
         width: avatarPx,
         height: avatarPx,
         borderRadius: '50%',
