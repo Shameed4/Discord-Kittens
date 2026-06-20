@@ -9,72 +9,113 @@ interface HandCardProps {
   onClick: (index: number) => void;
 }
 
-const CARD_BG: Record<CardType, string> = {
-  DEFUSE:           'linear-gradient(135deg, #166534, #14532d)',
-  EXPLODING_KITTEN: 'linear-gradient(135deg, #991b1b, #7f1d1d)',
-  SKIP:             'linear-gradient(135deg, #1d4ed8, #1e3a8a)',
-  ATTACK:           'linear-gradient(135deg, #c2410c, #9a3412)',
-  TARGETED_ATTACK:  'linear-gradient(135deg, #b45309, #92400e)',
-  CAT1:             'linear-gradient(135deg, #7e22ce, #4c1d95)',
-  CAT2:             'linear-gradient(135deg, #7e22ce, #4c1d95)',
-  CAT3:             'linear-gradient(135deg, #7e22ce, #4c1d95)',
-  CAT4:             'linear-gradient(135deg, #7e22ce, #4c1d95)',
-  CAT5:             'linear-gradient(135deg, #7e22ce, #4c1d95)',
-  FERAL_CAT:        'linear-gradient(135deg, #6b21a8, #3b0764)',
-  SEE_THE_FUTURE:   'linear-gradient(135deg, #0e7490, #164e63)',
-  ALTER_THE_FUTURE: 'linear-gradient(135deg, #0369a1, #1e3a8a)',
-  SHUFFLE:          'linear-gradient(135deg, #a16207, #713f12)',
-  DRAW_FROM_BOTTOM: 'linear-gradient(135deg, #0f766e, #134e4a)',
-  FAVOR:            'linear-gradient(135deg, #be185d, #9d174d)',
+interface CardInfo {
+  bg: string;
+  emoji: string;
+  name: string;
+}
+
+const CARD_INFO: Record<CardType, CardInfo> = {
+  DEFUSE: {
+    bg: 'linear-gradient(135deg, #166534, #14532d)',
+    emoji: '🔧',
+    name: 'Defuse',
+  },
+  EXPLODING_KITTEN: {
+    bg: 'linear-gradient(135deg, #991b1b, #7f1d1d)',
+    emoji: '💥',
+    name: 'Bomb!',
+  },
+  SKIP: {
+    bg: 'linear-gradient(135deg, #1d4ed8, #1e3a8a)',
+    emoji: '⏭️',
+    name: 'Skip',
+  },
+  ATTACK: {
+    bg: 'linear-gradient(135deg, #c2410c, #9a3412)',
+    emoji: '⚡',
+    name: 'Attack',
+  },
+  TARGETED_ATTACK: {
+    bg: 'linear-gradient(135deg, #b45309, #92400e)',
+    emoji: '🎯',
+    name: 'Target',
+  },
+  CAT1: {
+    bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
+    emoji: '🌮',
+    name: 'Taco',
+  },
+  CAT2: {
+    bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
+    emoji: '😡',
+    name: 'Rage',
+  },
+  CAT3: {
+    bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
+    emoji: '🥔',
+    name: 'Potato',
+  },
+  CAT4: {
+    bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
+    emoji: '🍉',
+    name: 'Melon',
+  },
+  CAT5: {
+    bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
+    emoji: '🌈',
+    name: 'Rainbow',
+  },
+  FERAL_CAT: {
+    bg: 'linear-gradient(135deg, #6b21a8, #3b0764)',
+    emoji: '🦄',
+    name: 'Feral',
+  },
+  SEE_THE_FUTURE: {
+    bg: 'linear-gradient(135deg, #0e7490, #164e63)',
+    emoji: '🔮',
+    name: 'Future',
+  },
+  ALTER_THE_FUTURE: {
+    bg: 'linear-gradient(135deg, #0369a1, #1e3a8a)',
+    emoji: '✨',
+    name: 'Alter',
+  },
+  SHUFFLE: {
+    bg: 'linear-gradient(135deg, #a16207, #713f12)',
+    emoji: '🔀',
+    name: 'Shuffle',
+  },
+  DRAW_FROM_BOTTOM: {
+    bg: 'linear-gradient(135deg, #0f766e, #134e4a)',
+    emoji: '⬇️',
+    name: 'Bottom',
+  },
+  FAVOR: {
+    bg: 'linear-gradient(135deg, #be185d, #9d174d)',
+    emoji: '🎁',
+    name: 'Favor',
+  },
 };
 
-const CARD_EMOJI: Record<CardType, string> = {
-  DEFUSE:           '🔧',
-  EXPLODING_KITTEN: '💥',
-  SKIP:             '⏭️',
-  ATTACK:           '⚡',
-  TARGETED_ATTACK:  '🎯',
-  CAT1:             '🐾',
-  CAT2:             '🌮',
-  CAT3:             '🥔',
-  CAT4:             '🐟',
-  CAT5:             '🌈',
-  FERAL_CAT:        '🦄',
-  SEE_THE_FUTURE:   '🔮',
-  ALTER_THE_FUTURE: '✨',
-  SHUFFLE:          '🔀',
-  DRAW_FROM_BOTTOM: '⬇️',
-  FAVOR:            '🎁',
-};
+const DEFAULT_BG = 'linear-gradient(135deg, #374151, #1f2937)';
 
-const SHORT_NAME: Record<CardType, string> = {
-  DEFUSE:           'Defuse',
-  EXPLODING_KITTEN: 'Bomb!',
-  SKIP:             'Skip',
-  ATTACK:           'Attack',
-  TARGETED_ATTACK:  'Target',
-  CAT1:             'Taco',
-  CAT2:             'Beard',
-  CAT3:             'Potato',
-  CAT4:             'Melon',
-  CAT5:             'Rainbow',
-  FERAL_CAT:        'Feral',
-  SEE_THE_FUTURE:   'Future',
-  ALTER_THE_FUTURE: 'Alter',
-  SHUFFLE:          'Shuffle',
-  DRAW_FROM_BOTTOM: 'Bottom',
-  FAVOR:            'Favor',
-};
-
-export default function HandCard({ card, index, isSelected, isPlayable, onClick }: HandCardProps) {
+export default function HandCard({
+  card,
+  index,
+  isSelected,
+  isPlayable,
+  onClick,
+}: HandCardProps) {
   const isCat = isCatCard(card);
+  const info = CARD_INFO[card];
 
   return (
     <button
       onClick={() => isPlayable && onClick(index)}
       disabled={!isPlayable}
       style={{
-        background: CARD_BG[card] ?? 'linear-gradient(135deg, #374151, #1f2937)',
+        background: info?.bg ?? DEFAULT_BG,
         transform: isSelected ? 'translateY(-12px)' : undefined,
         boxShadow: isSelected
           ? '0 8px 20px rgba(167,139,250,0.5), 0 0 0 2px white'
@@ -82,20 +123,20 @@ export default function HandCard({ card, index, isSelected, isPlayable, onClick 
       }}
       className={[
         'relative flex flex-col items-center justify-center gap-0.5',
-        'w-[46px] h-[66px] rounded-lg border-2 text-white shrink-0 select-none',
+        'h-[66px] w-[46px] shrink-0 rounded-lg border-2 text-white select-none',
         'transition-all duration-150',
         isSelected ? 'border-white' : 'border-white/20',
         isPlayable
           ? 'cursor-pointer hover:-translate-y-2'
-          : 'opacity-40 cursor-not-allowed',
+          : 'cursor-not-allowed opacity-40',
       ].join(' ')}
     >
-      <span className="text-lg leading-none">{CARD_EMOJI[card]}</span>
-      <span className="block text-[7px] font-black uppercase tracking-tight px-0.5 leading-tight text-center text-white/90">
-        {SHORT_NAME[card]}
+      <span className="text-lg leading-none">{info?.emoji}</span>
+      <span className="block px-0.5 text-center text-[7px] leading-tight font-black tracking-tight text-white/90 uppercase">
+        {info?.name}
       </span>
       {isCat && (
-        <span className="absolute bottom-0.5 text-[6px] font-black uppercase tracking-widest opacity-60">
+        <span className="absolute bottom-0.5 text-[6px] font-black tracking-widest uppercase opacity-60">
           cat
         </span>
       )}
