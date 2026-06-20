@@ -132,274 +132,279 @@ export default function GamePage() {
     <div className="flex h-full overflow-hidden bg-[#0d0720]">
       {/* Main game area: table on top, hand at the bottom */}
       <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-3">
-      {/* ── Round table ── */}
-      {/*
+        {/* ── Round table ── */}
+        {/*
         Outer div is a square container. The felt circle is inset by 15% on each
         side, leaving 15% on each edge for seat content to overflow into.
         All player seats are positioned with percentage coords relative to this
         outer container so they land right on the felt's perimeter.
       */}
-      <div
-        style={{
-          position: 'relative',
-          width: 'min(62vw, 620px)',
-          height: 'min(46vh, 360px)',
-        }}
-      >
-        {/* Felt circle */}
         <div
           style={{
-            position: 'absolute',
-            inset: '15%',
-            borderRadius: '50%',
-            background:
-              'radial-gradient(ellipse at 38% 38%, #1a5c2a 40%, #0e3d1a 100%)',
-            border: '4px solid #8B6914',
-            boxShadow:
-              '0 0 40px rgba(109,40,217,0.25), inset 0 0 30px rgba(0,0,0,0.4)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            position: 'relative',
+            width: 'min(62vw, 620px)',
+            height: 'min(46vh, 360px)',
           }}
         >
-          {/* Subtle purple glow overlay */}
+          {/* Felt circle */}
           <div
             style={{
               position: 'absolute',
-              inset: 0,
+              inset: '15%',
               borderRadius: '50%',
               background:
-                'radial-gradient(ellipse, rgba(76,29,149,0.14) 0%, transparent 70%)',
-              pointerEvents: 'none',
+                'radial-gradient(ellipse at 38% 38%, #1a5c2a 40%, #0e3d1a 100%)',
+              border: '4px solid #8B6914',
+              boxShadow:
+                '0 0 40px rgba(109,40,217,0.25), inset 0 0 30px rgba(0,0,0,0.4)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
-          />
-
-          {/* Center content */}
-          <div className="relative z-10 flex max-w-full flex-col items-center gap-2 px-3">
-            <LastActionBanner lastAction={gameState.lastAction} />
-
-            {/* Deck + discard piles */}
-            {inProgress && (
-              <div className="flex items-end gap-4">
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-[8px] font-bold tracking-widest text-purple-800 uppercase">
-                    Deck
-                  </span>
-                  <button
-                    onClick={() => {
-                      if (isMyTurn && turnState === 'NORMAL')
-                        sendAction({ action: 'DRAW_CARD' });
-                    }}
-                    style={{
-                      position: 'relative',
-                      width: 44,
-                      height: 62,
-                      borderRadius: 6,
-                      background:
-                        'radial-gradient(ellipse at 35% 35%, #1e1060 0%, #06020f 100%)',
-                      border: '2px solid #7c3aed',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 22,
-                      boxShadow:
-                        '3px 3px 0 #1e1060, 5px 5px 0 #1e1060, 0 0 16px rgba(109,40,217,0.3)',
-                      cursor:
-                        isMyTurn && turnState === 'NORMAL'
-                          ? 'pointer'
-                          : 'default',
-                    }}
-                  >
-                    😼
-                    <span
-                      style={{
-                        position: 'absolute',
-                        bottom: 3,
-                        right: 3,
-                        fontSize: 9,
-                        fontWeight: 800,
-                        color: '#a78bfa',
-                        background: 'rgba(0,0,0,0.6)',
-                        padding: '1px 3px',
-                        borderRadius: 3,
-                      }}
-                    >
-                      {deckSize}
-                    </span>
-                  </button>
-                </div>
-                <div className="flex flex-col items-center gap-1">
-                  <span className="text-[8px] font-bold tracking-widest text-purple-800 uppercase">
-                    Discard
-                  </span>
-                  <div
-                    style={{
-                      width: 44,
-                      height: 62,
-                      borderRadius: 6,
-                      background: '#111827',
-                      border: '2px solid #374151',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: 22,
-                    }}
-                  >
-                    🃏
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Under-attack notice */}
-            {inProgress && gameState.underAttack && (
-              <div className="rounded-full border border-orange-700/50 bg-orange-950/50 px-3 py-0.5 text-[9px] font-bold text-orange-400">
-                ⚡ Draw {gameState.turnsToTake} more
-              </div>
-            )}
-
-            {/* Error message */}
-            {gameState.err && (
-              <div className="max-w-[180px] rounded-full border border-red-800 bg-red-950/70 px-3 py-0.5 text-center text-[9px] font-semibold text-red-300">
-                {gameState.err}
-              </div>
-            )}
-
-            {/* Pre-game lobby info */}
-            {!inProgress && (
-              <div className="text-center text-[10px] leading-snug font-semibold text-purple-800">
-                <div className="font-bold text-purple-600">{lobbyName}</div>
-                <div>
-                  {players.length} player{players.length !== 1 ? 's' : ''}{' '}
-                  connected
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Player seats — absolutely positioned around the felt perimeter */}
-        {players.map((player, idx) => {
-          const pos = seatPositions[idx];
-          return (
-            <PlayerSeat
-              key={player.id}
-              playerState={player}
-              gameState={gameState}
-              playerIndex={idx}
-              seatScale={seatScale}
-              mirrored={pos.x > 50}
+          >
+            {/* Subtle purple glow overlay */}
+            <div
               style={{
                 position: 'absolute',
-                left: `${pos.x}%`,
-                top: `${pos.y}%`,
-                transform: 'translate(-50%, -50%)',
-                zIndex: player.id === playerId ? 10 : 5,
+                inset: 0,
+                borderRadius: '50%',
+                background:
+                  'radial-gradient(ellipse, rgba(76,29,149,0.14) 0%, transparent 70%)',
+                pointerEvents: 'none',
               }}
             />
-          );
-        })}
 
-        {/* State-specific overlays — centered over the entire table area */}
-        {turnState === 'SEEING_THE_FUTURE' && isMyTurn && gameState.future && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center">
-            <FutureViewer cards={gameState.future} />
+            {/* Center content */}
+            <div className="relative z-10 flex max-w-full flex-col items-center gap-2 px-3">
+              <LastActionBanner lastAction={gameState.lastAction} />
+
+              {/* Deck + discard piles */}
+              {inProgress && (
+                <div className="flex items-end gap-4">
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[8px] font-bold tracking-widest text-purple-800 uppercase">
+                      Deck
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (isMyTurn && turnState === 'NORMAL')
+                          sendAction({ action: 'DRAW_CARD' });
+                      }}
+                      style={{
+                        position: 'relative',
+                        width: 44,
+                        height: 62,
+                        borderRadius: 6,
+                        background:
+                          'radial-gradient(ellipse at 35% 35%, #1e1060 0%, #06020f 100%)',
+                        border: '2px solid #7c3aed',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 22,
+                        boxShadow:
+                          '3px 3px 0 #1e1060, 5px 5px 0 #1e1060, 0 0 16px rgba(109,40,217,0.3)',
+                        cursor:
+                          isMyTurn && turnState === 'NORMAL'
+                            ? 'pointer'
+                            : 'default',
+                      }}
+                    >
+                      😼
+                      <span
+                        style={{
+                          position: 'absolute',
+                          bottom: 3,
+                          right: 3,
+                          fontSize: 9,
+                          fontWeight: 800,
+                          color: '#a78bfa',
+                          background: 'rgba(0,0,0,0.6)',
+                          padding: '1px 3px',
+                          borderRadius: 3,
+                        }}
+                      >
+                        {deckSize}
+                      </span>
+                    </button>
+                  </div>
+                  <div className="flex flex-col items-center gap-1">
+                    <span className="text-[8px] font-bold tracking-widest text-purple-800 uppercase">
+                      Discard
+                    </span>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 62,
+                        borderRadius: 6,
+                        background: '#111827',
+                        border: '2px solid #374151',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: 22,
+                      }}
+                    >
+                      🃏
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Under-attack notice */}
+              {inProgress && gameState.underAttack && (
+                <div className="rounded-full border border-orange-700/50 bg-orange-950/50 px-3 py-0.5 text-[9px] font-bold text-orange-400">
+                  ⚡ Draw {gameState.turnsToTake} more
+                </div>
+              )}
+
+              {/* Error message */}
+              {gameState.err && (
+                <div className="max-w-[180px] rounded-full border border-red-800 bg-red-950/70 px-3 py-0.5 text-center text-[9px] font-semibold text-red-300">
+                  {gameState.err}
+                </div>
+              )}
+
+              {/* Pre-game lobby info */}
+              {!inProgress && (
+                <div className="text-center text-[10px] leading-snug font-semibold text-purple-800">
+                  <div className="font-bold text-purple-600">{lobbyName}</div>
+                  <div>
+                    {players.length} player{players.length !== 1 ? 's' : ''}{' '}
+                    connected
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        )}
-        {turnState === 'ALTERING_THE_FUTURE' &&
-          isMyTurn &&
-          gameState.future && (
+
+          {/* Player seats — absolutely positioned around the felt perimeter */}
+          {players.map((player, idx) => {
+            const pos = seatPositions[idx];
+            return (
+              <PlayerSeat
+                key={player.id}
+                playerState={player}
+                gameState={gameState}
+                playerIndex={idx}
+                seatScale={seatScale}
+                mirrored={pos.x > 50}
+                style={{
+                  position: 'absolute',
+                  left: `${pos.x}%`,
+                  top: `${pos.y}%`,
+                  transform: 'translate(-50%, -50%)',
+                  zIndex: player.id === playerId ? 10 : 5,
+                }}
+              />
+            );
+          })}
+
+          {/* State-specific overlays — centered over the entire table area */}
+          {turnState === 'SEEING_THE_FUTURE' &&
+            isMyTurn &&
+            gameState.future && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center">
+                <FutureViewer cards={gameState.future} />
+              </div>
+            )}
+          {turnState === 'ALTERING_THE_FUTURE' &&
+            isMyTurn &&
+            gameState.future && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center">
+                <FutureReorder
+                  cards={gameState.future}
+                  onConfirm={(newOrder) =>
+                    sendAction({
+                      action: 'ALTER_FUTURE',
+                      alterFutureOrder: newOrder,
+                    })
+                  }
+                />
+              </div>
+            )}
+          {turnState === 'AWAITING_KITTEN_PLACEMENT' && isMyTurn && (
             <div className="absolute inset-0 z-50 flex items-center justify-center">
-              <FutureReorder
-                cards={gameState.future}
-                onConfirm={(newOrder) =>
+              <KittenPlacer
+                deckSize={deckSize}
+                onPlace={(index) =>
                   sendAction({
-                    action: 'ALTER_FUTURE',
-                    alterFutureOrder: newOrder,
+                    action: 'PLACE_KITTEN',
+                    placeKittenIndex: index,
                   })
                 }
               />
             </div>
           )}
-        {turnState === 'AWAITING_KITTEN_PLACEMENT' && isMyTurn && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center">
-            <KittenPlacer
-              deckSize={deckSize}
-              onPlace={(index) =>
-                sendAction({ action: 'PLACE_KITTEN', placeKittenIndex: index })
-              }
-            />
-          </div>
-        )}
-        {amFavorTarget && (
-          <div className="absolute inset-0 z-50 flex items-center justify-center">
-            <FavorGiver
-              hand={hand}
-              requesterName={turnPlayerName}
-              onGive={(cardIndex) =>
-                sendAction({ action: 'GIVE_FAVOR', useCardIndex: cardIndex })
-              }
-            />
-          </div>
-        )}
-        {turnState === 'AWAITING_DISCARD_TAKE' &&
-          isMyTurn &&
-          gameState.discardOptions && (
+          {amFavorTarget && (
             <div className="absolute inset-0 z-50 flex items-center justify-center">
-              <DiscardPicker
-                options={gameState.discardOptions}
-                onPick={(card) =>
-                  sendAction({
-                    action: 'TAKE_FROM_DISCARD',
-                    requestedCard: card,
-                  })
+              <FavorGiver
+                hand={hand}
+                requesterName={turnPlayerName}
+                onGive={(cardIndex) =>
+                  sendAction({ action: 'GIVE_FAVOR', useCardIndex: cardIndex })
                 }
               />
             </div>
           )}
-      </div>
+          {turnState === 'AWAITING_DISCARD_TAKE' &&
+            isMyTurn &&
+            gameState.discardOptions && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center">
+                <DiscardPicker
+                  options={gameState.discardOptions}
+                  onPick={(card) =>
+                    sendAction({
+                      action: 'TAKE_FROM_DISCARD',
+                      requestedCard: card,
+                    })
+                  }
+                />
+              </div>
+            )}
+        </div>
 
-      {/* ── Hand zone (below table) — cards and actions side by side ── */}
-      {/*
+        {/* ── Hand zone (below table) — cards and actions side by side ── */}
+        {/*
         Fixed 2:1 proportions (both flex items have basis 0 via `flex-[2]`/`flex-1`
         + min-w-0), so the card area keeps the same width no matter which buttons or
         hints the action bar is showing — cards never shift around. Cards wrap to a
         second row when the hand is large rather than getting clipped.
       */}
-      <div className="flex w-full max-w-4xl items-center justify-center gap-4 px-2">
-        <div className="flex min-w-0 flex-[2] flex-wrap content-center justify-center gap-1.5 pb-1">
-          {hand.map((card, i) => (
-            <HandCard
-              key={i}
-              card={card}
-              index={i}
-              isSelected={selectedIndices.includes(i)}
-              isPlayable={handIsPlayable}
-              onClick={handleCardClick}
+        <div className="flex w-full max-w-4xl items-center justify-center gap-3 px-2">
+          <div className="flex min-w-0 flex-[4] flex-wrap content-center justify-center gap-1.5 pb-1">
+            {hand.map((card, i) => (
+              <HandCard
+                key={i}
+                card={card}
+                index={i}
+                isSelected={selectedIndices.includes(i)}
+                isPlayable={handIsPlayable}
+                onClick={handleCardClick}
+              />
+            ))}
+            {hand.length === 0 && inProgress && (
+              <span className="self-center text-xs font-semibold text-purple-800">
+                No cards in hand
+              </span>
+            )}
+          </div>
+          <div className="flex min-w-0 flex-1 justify-center">
+            <ActionBar
+              gameState={gameState}
+              selectedIndices={selectedIndices}
+              onAction={(action) => {
+                sendAction(action);
+                setSelectedIndices([]);
+              }}
             />
-          ))}
-          {hand.length === 0 && inProgress && (
-            <span className="self-center text-xs font-semibold text-purple-800">
-              No cards in hand
-            </span>
-          )}
+          </div>
         </div>
-        <div className="flex min-w-0 flex-1 justify-center">
-          <ActionBar
-            gameState={gameState}
-            selectedIndices={selectedIndices}
-            onAction={(action) => {
-              sendAction(action);
-              setSelectedIndices([]);
-            }}
-          />
-        </div>
-      </div>
 
-      {/* Game over overlay */}
-      {turnState === 'GAME_OVER' && (
-        <GameOverOverlay players={players} onLeave={handleLeave} />
-      )}
+        {/* Game over overlay */}
+        {turnState === 'GAME_OVER' && (
+          <GameOverOverlay players={players} onLeave={handleLeave} />
+        )}
       </div>
 
       {/* Game log sidebar */}

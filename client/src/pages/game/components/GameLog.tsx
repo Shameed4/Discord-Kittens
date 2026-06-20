@@ -32,7 +32,7 @@ export default function GameLog({ log }: GameLogProps) {
   }
 
   return (
-    <div className="flex h-full w-[clamp(150px,28vw,240px)] shrink-0 flex-col border-l border-purple-800 bg-[#0d0720]/95">
+    <div className="flex h-full w-[clamp(110px,18vw,240px)] shrink-0 flex-col border-l border-purple-800 bg-[#0d0720]/95">
       <div className="flex items-center justify-between border-b border-purple-900 px-3 py-2">
         <span className="text-[10px] font-bold tracking-widest text-purple-400 uppercase">
           Game Log

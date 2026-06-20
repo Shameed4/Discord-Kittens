@@ -7,7 +7,7 @@ import {
 } from '../../../models/game-enums';
 import type { GameState } from '../../../models/game-state';
 import type { ActionRequest } from '../../../models/player-action';
-import TargetSelector from './TargetSelector';
+import TargetModal from './TargetModal';
 
 interface ActionBarProps {
   gameState: GameState;
@@ -20,8 +20,7 @@ export default function ActionBar({
   selectedIndices,
   onAction,
 }: ActionBarProps) {
-  const [targetedPlayer, setTargetedPlayer] = useState<number | null>(null);
-  const [requestedCard, setRequestedCard] = useState<string>('');
+  const [showTargetModal, setShowTargetModal] = useState(false);
 
   const { hand, players, playerId, turnId, inProgress, turnState } = gameState;
   const isMyTurn = playerId === turnId;
@@ -32,7 +31,7 @@ export default function ActionBar({
       <div className="flex justify-center">
         <button
           onClick={() => onAction({ action: 'START_GAME' })}
-          className="rounded-full border border-green-400/30 bg-gradient-to-r from-green-600 to-emerald-700 px-8 py-2.5 font-bold text-white shadow-lg transition-all hover:from-green-500 hover:to-emerald-600"
+          className="rounded-full border border-green-400/30 bg-gradient-to-r from-green-600 to-emerald-700 px-4 py-1.5 text-sm font-bold text-white shadow-lg transition-all hover:from-green-500 hover:to-emerald-600"
         >
           Start Game
         </button>
@@ -46,7 +45,7 @@ export default function ActionBar({
   ) {
     const waitingFor = players.find((p) => p.id === turnId);
     return (
-      <div className="flex justify-center text-center text-xs font-semibold tracking-widest break-words text-purple-800 uppercase">
+      <div className="flex justify-center text-center text-[10px] font-semibold tracking-wide break-words text-purple-800 uppercase">
         {waitingFor ? `Waiting for ${waitingFor.name}…` : ''}
       </div>
     );
@@ -79,58 +78,69 @@ export default function ActionBar({
     (hand[selectedIndices[0]] === 'TARGETED_ATTACK' ||
       hand[selectedIndices[0]] === 'FAVOR');
   const comboNeedsTarget = validCombo && selectedIndices.length !== 5;
-  const comboNeeds3CardPick = validCombo && selectedIndices.length === 3;
+  const needsTargetMove = needsTarget || comboNeedsTarget;
+  const needs3CardPick = validCombo && selectedIndices.length === 3;
 
-  const canConfirm = (() => {
-    if (singleAction) return !needsTarget || targetedPlayer !== null;
-    if (validCombo && selectedIndices.length === 2)
-      return targetedPlayer !== null;
-    if (validCombo && selectedIndices.length === 3)
-      return targetedPlayer !== null && requestedCard !== '';
-    if (validCombo && selectedIndices.length === 5) return true;
-    return false;
-  })();
+  // Title/prompt shown in the target-selection popup.
+  const modalTitle = singleAction
+    ? CardDisplayName[hand[selectedIndices[0]]]
+    : `${selectedIndices.length}-Card Combo`;
+  const modalPrompt = needs3CardPick
+    ? 'Name a card to steal from a player'
+    : comboNeedsTarget
+      ? 'Steal a random card from a player'
+      : hand[selectedIndices[0]] === 'FAVOR'
+        ? 'Choose who must give you a card'
+        : 'Choose a player to target';
 
+  // Targeted moves open a popup to pick the target (and card for 3-card combos),
+  // committing only after the selection. Everything else commits immediately.
   const handlePlay = () => {
-    if (singleAction) {
-      const action: ActionRequest =
-        needsTarget && targetedPlayer !== null
-          ? {
-              action: 'PLAY_CARD',
-              useCardIndex: selectedIndices[0],
-              targetedPlayer,
-            }
-          : { action: 'PLAY_CARD', useCardIndex: selectedIndices[0] };
-      onAction(action);
-    } else if (validCombo) {
-      if (selectedIndices.length === 5) {
-        onAction({ action: 'COMBO', comboIndices: selectedIndices });
-      } else if (selectedIndices.length === 3 && targetedPlayer !== null) {
-        onAction({
-          action: 'COMBO',
-          comboIndices: selectedIndices,
-          targetedPlayer,
-          requestedCard,
-        });
-      } else if (selectedIndices.length === 2 && targetedPlayer !== null) {
-        onAction({
-          action: 'COMBO',
-          comboIndices: selectedIndices,
-          targetedPlayer,
-        });
-      }
+    if (needsTargetMove) {
+      setShowTargetModal(true);
+      return;
     }
-    setTargetedPlayer(null);
-    setRequestedCard('');
+    if (singleAction) {
+      onAction({ action: 'PLAY_CARD', useCardIndex: selectedIndices[0] });
+    } else if (validCombo && selectedIndices.length === 5) {
+      onAction({ action: 'COMBO', comboIndices: selectedIndices });
+    }
+  };
+
+  const commitTargetedMove = (
+    targetedPlayer: number,
+    requestedCard?: string,
+  ) => {
+    if (singleAction) {
+      onAction({
+        action: 'PLAY_CARD',
+        useCardIndex: selectedIndices[0],
+        targetedPlayer,
+      });
+    } else if (selectedIndices.length === 3) {
+      onAction({
+        action: 'COMBO',
+        comboIndices: selectedIndices,
+        targetedPlayer,
+        requestedCard,
+      });
+    } else if (selectedIndices.length === 2) {
+      onAction({
+        action: 'COMBO',
+        comboIndices: selectedIndices,
+        targetedPlayer,
+      });
+    }
+    setShowTargetModal(false);
   };
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="flex flex-wrap justify-center gap-3">
+    <div className="flex flex-col items-center gap-1.5">
+      <div className="flex flex-wrap justify-center gap-2">
         {/* Draw button */}
         <button
           onClick={() => onAction({ action: 'DRAW_CARD' })}
-          className="animate-glow-pulse rounded-full border border-blue-400/40 bg-gradient-to-r from-blue-600 to-blue-800 px-6 py-2 font-bold text-white shadow-lg transition-all hover:from-blue-500 hover:to-blue-700"
+          className="animate-glow-pulse rounded-full border border-blue-400/40 bg-gradient-to-r from-blue-600 to-blue-800 px-3 py-1.5 text-xs font-bold text-white shadow-lg transition-all hover:from-blue-500 hover:to-blue-700"
         >
           Draw Card
         </button>
@@ -139,12 +149,7 @@ export default function ActionBar({
         {(singleAction || validCombo) && (
           <button
             onClick={handlePlay}
-            disabled={!canConfirm}
-            className={`rounded-full border px-6 py-2 font-bold text-white transition-all ${
-              canConfirm
-                ? 'border-violet-400/40 bg-gradient-to-r from-violet-600 to-purple-800 shadow-lg hover:from-violet-500 hover:to-purple-700'
-                : 'cursor-not-allowed border-gray-700 bg-gray-800 opacity-50'
-            }`}
+            className="rounded-full border border-violet-400/40 bg-gradient-to-r from-violet-600 to-purple-800 px-3 py-1.5 text-xs font-bold text-white shadow-lg transition-all hover:from-violet-500 hover:to-purple-700"
           >
             {singleAction
               ? `Play ${CardDisplayName[hand[selectedIndices[0]]]}`
@@ -154,41 +159,23 @@ export default function ActionBar({
 
         {/* Invalid selection hint */}
         {selectedIndices.length > 0 && !singleAction && !validCombo && (
-          <span className="max-w-[8rem] self-center text-center text-xs font-semibold text-purple-700">
+          <span className="max-w-[8rem] self-center text-center text-[10px] font-semibold text-purple-700">
             Select 2-3 matching cards, or 5 unique cards for a combo
           </span>
         )}
       </div>
 
-      {/* Target selector */}
-      {(needsTarget || comboNeedsTarget) && (
-        <TargetSelector
+      {/* Target-selection popup for targeted moves */}
+      {showTargetModal && (
+        <TargetModal
+          title={modalTitle}
+          prompt={modalPrompt}
           players={players}
           currentPlayerId={playerId}
-          selected={targetedPlayer}
-          onSelect={setTargetedPlayer}
+          needsCard={needs3CardPick}
+          onCommit={commitTargetedMove}
+          onCancel={() => setShowTargetModal(false)}
         />
-      )}
-
-      {/* 3-card combo: card name picker */}
-      {comboNeeds3CardPick && targetedPlayer !== null && (
-        <div className="mt-1 flex items-center gap-2">
-          <span className="text-xs font-semibold text-purple-600">
-            Request card:
-          </span>
-          <select
-            value={requestedCard}
-            onChange={(e) => setRequestedCard(e.target.value)}
-            className="rounded-lg border border-purple-800 bg-purple-950 px-2 py-1 text-sm text-white"
-          >
-            <option value="">Pick a card…</option>
-            {(Object.keys(CardDisplayName) as CardType[]).map((c) => (
-              <option key={c} value={c}>
-                {CardDisplayName[c]}
-              </option>
-            ))}
-          </select>
-        </div>
       )}
     </div>
   );
