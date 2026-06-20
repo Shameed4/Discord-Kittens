@@ -131,12 +131,13 @@ type PlayerAction struct {
 	actionType ActionType
 
 	// optional fields
-	placeKittenIndex int   // for placing kittens
-	useCardIndex     int   // card that you place
-	alterFutureOrder []int // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
-	targetedPlayer   int   // player being targeted
-	comboIndices     []int // list of card indices used for combo
-	requestedCard    Card  // card requested from 3 combo
+	placeKittenIndex int            // for placing kittens
+	useCardIndex     int            // card that you place
+	alterFutureOrder []int          // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
+	targetedPlayer   int            // player being targeted
+	comboIndices     []int          // list of card indices used for combo
+	requestedCard    Card           // card requested from 3 combo
+	conn             chan GameState // only used for disconnect actions to ensure right channel is closed
 }
 
 type Lobby struct {

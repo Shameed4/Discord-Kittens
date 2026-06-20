@@ -34,6 +34,10 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		lobby.recordAction(LastAction{Public: "Game started!"})
 
 	case Disconnect:
+		// don't disconnect new channel when client reconnects
+		if action.conn != nil && player.Send != action.conn {
+			return nil
+		}
 		if !player.IsOnline {
 			fmt.Printf("Illegal state? Player id %d is offline but disconnected", playerId)
 		}

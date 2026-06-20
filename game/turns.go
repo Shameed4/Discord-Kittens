@@ -163,6 +163,20 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	return res
 }
 
+// tries sending to online player, without blocking. if channel is full
+// (meaning client hasn't received many messages) then it must be disconnected.
+func (lobby *Lobby) sendTo(playerIdx int, state GameState) {
+	player := lobby.players[playerIdx]
+	if !player.IsOnline {
+		return
+	}
+	select {
+	case player.Send <- state:
+	default:
+		lobby.disconnectPlayer(playerIdx)
+	}
+}
+
 func (lobby *Lobby) sendError(playerIdx int, err string) {
 	player := lobby.players[playerIdx]
 	if !player.IsOnline {
@@ -170,13 +184,13 @@ func (lobby *Lobby) sendError(playerIdx int, err string) {
 	}
 	res := lobby.getGameState(playerIdx)
 	res.Err = err
-	player.Send <- res
+	lobby.sendTo(playerIdx, res)
 }
 
 func (lobby *Lobby) broadcastGameState() {
 	for playerIdx, player := range lobby.players {
 		if player.IsOnline {
-			player.Send <- lobby.getGameState(playerIdx)
+			lobby.sendTo(playerIdx, lobby.getGameState(playerIdx))
 		}
 	}
 }

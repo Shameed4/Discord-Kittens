@@ -5,9 +5,17 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
+)
+
+const (
+	// pings exist so cloudflare doesn't close connections
+	pongWait   = 60 * time.Second
+	pingPeriod = 45 * time.Second
+	writeWait  = 10 * time.Second
 )
 
 type CreateLobbyRequest struct {
@@ -111,7 +119,10 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// request to join lobby
 	username := r.URL.Query().Get("username")
 	userId := r.URL.Query().Get("userId")
-	gameStateChan := make(chan GameState)
+	// Buffered so a briefly-slow client doesn't block the lobby goroutine on
+	// send; a genuinely wedged client fills the buffer and is dropped (see
+	// sendTo). Sized for many pending states without growing unbounded.
+	gameStateChan := make(chan GameState, 16)
 	joinResultChan := make(chan JoinResponse)
 	joinReq := JoinRequest{
 		Name:   username,
@@ -129,15 +140,41 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	playerId := joinResponse.playerId
 	log.Printf("Player %d successfully joined lobby %s", playerId, lobbyName)
 
-	// send messages to client
+	// send messages and pings to client. pings prevent auto socket disconnect.
 	go func() {
-		for state := range gameStateChan {
-			if err := ws.WriteJSON(state); err != nil {
-				log.Println("Write error:", err)
-				break
+		ticker := time.NewTicker(pingPeriod)
+		defer ticker.Stop()
+		for {
+			select {
+			case state, ok := <-gameStateChan:
+				ws.SetWriteDeadline(time.Now().Add(writeWait))
+				if !ok {
+					// shut socket down if player is disconnected
+					ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+					ws.Close()
+					return
+				}
+				if err := ws.WriteJSON(state); err != nil {
+					log.Println("Write error:", err)
+					ws.Close()
+					return
+				}
+			case <-ticker.C:
+				ws.SetWriteDeadline(time.Now().Add(writeWait))
+				if err := ws.WriteMessage(websocket.PingMessage, nil); err != nil {
+					ws.Close()
+					return
+				}
 			}
 		}
 	}()
+
+	// disconnect client who doesn't respond to ping
+	ws.SetReadDeadline(time.Now().Add(pongWait))
+	ws.SetPongHandler(func(string) error {
+		ws.SetReadDeadline(time.Now().Add(pongWait))
+		return nil
+	})
 
 	// send client updates to lobby
 	for {
@@ -190,6 +227,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	quitAction := PlayerAction{
 		playerId:   playerId,
 		actionType: Disconnect,
+		conn:       gameStateChan,
 	}
 	lobby.ActionQueue <- quitAction
 }
