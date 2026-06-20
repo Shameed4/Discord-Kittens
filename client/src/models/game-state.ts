@@ -15,6 +15,7 @@ export interface GameState {
   future?:         CardType[];
   discardOptions?: CardType[];
   lastAction?:     string;
+  log?:            string[];
   err?:            string;
 }
 

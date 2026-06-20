@@ -13,6 +13,7 @@ import KittenPlacer from './components/KittenPlacer';
 import FavorGiver from './components/FavorGiver';
 import DiscardPicker from './components/DiscardPicker';
 import GameOverOverlay from './components/GameOverOverlay';
+import GameLog from './components/GameLog';
 import { getSeatPositions } from './table-utils';
 import {
   getUsername,
@@ -396,6 +397,9 @@ export default function GamePage() {
       {turnState === 'GAME_OVER' && (
         <GameOverOverlay players={players} onLeave={handleLeave} />
       )}
+
+      {/* Game log */}
+      <GameLog log={gameState.log ?? []} />
 
       {/* Connection status badge */}
       {connectionStatus !== ConnectionStatus.Connected && (
