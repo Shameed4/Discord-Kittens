@@ -42,10 +42,11 @@ export default function GamePage() {
       navigate('/');
       return;
     }
-    let cancelled = false;
-    let socket: WebSocket | null = null;
+    let cancelled = false; // set on unmount/leave so we stop auto-reconnecting
+    let attempt = 0; // reconnect attempt counter, drives exponential backoff
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    (async () => {
+    const connect = async () => {
       // Wait for the Discord auth handshake to resolve so getUsername() returns
       // the real name. The backend locks in the name at join time, so connecting
       // before auth completes would permanently leave us as "Player N". Resolves
@@ -60,11 +61,14 @@ export default function GamePage() {
       if (username) params.set('username', username);
       const userId = getUserId();
       if (userId) params.set('userId', userId);
-      socket = new WebSocket(
+      const socket = new WebSocket(
         `${protocol}//${window.location.host}/ws?${params.toString()}`,
       );
       ws.current = socket;
-      socket.onopen = () => setConnectionStatus(ConnectionStatus.Connected);
+      socket.onopen = () => {
+        attempt = 0; // successful connection — reset backoff
+        setConnectionStatus(ConnectionStatus.Connected);
+      };
       socket.onmessage = (event) => {
         try {
           setGameState(JSON.parse(event.data) as GameState);
@@ -73,12 +77,36 @@ export default function GamePage() {
           console.error('Failed to parse game state:', e);
         }
       };
-      socket.onclose = () => setConnectionStatus(ConnectionStatus.Disconnected);
-    })();
+      socket.onclose = (event) => {
+        if (cancelled) return; // we closed it intentionally (unmount/leave)
+
+        // 1000: clean server close (our own quit, or a duplicate-tab takeover —
+        //       another connection is now authoritative, so don't fight it).
+        // 4000: server rejected the join (e.g. game in progress with no seat to
+        //       reclaim). Surface the reason and stop.
+        if (event.code === 1000 || event.code === 4000) {
+          setConnectionStatus(ConnectionStatus.Disconnected);
+          return;
+        }
+
+        // Unexpected drop (network loss, code 1006, etc.) — reconnect with
+        // exponential backoff capped at 15s, plus jitter to avoid thundering herd.
+        const delay =
+          Math.min(1000 * 2 ** attempt, 15000) + Math.random() * 300;
+        attempt += 1;
+        setConnectionStatus(ConnectionStatus.Reconnecting);
+        reconnectTimer = setTimeout(() => {
+          if (!cancelled) connect();
+        }, delay);
+      };
+    };
+
+    connect();
 
     return () => {
       cancelled = true;
-      socket?.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      ws.current?.close();
       ws.current = null;
     };
   }, [lobbyName, autoCreate, navigate]);
