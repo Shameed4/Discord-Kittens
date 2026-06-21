@@ -242,13 +242,6 @@ func (lobby *Lobby) disconnectPlayer(playerId int) {
 	}
 	player.IsOnline = false
 	close(player.Send)
-
-	for _, player := range lobby.players {
-		if player.IsOnline {
-			return
-		}
-	}
-	lobby.turnState = GameOver
 }
 
 func (lobby *Lobby) discardCard(player *Player, idx int) {
@@ -272,6 +265,26 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 			// exits; in the normal quit-then-rejoin case Send is already closed.
 			if p.IsOnline {
 				close(p.Send)
+			}
+			p.IsOnline = true
+			p.Send = joinReq.Send
+			if joinReq.Name != "" {
+				p.Name = joinReq.Name
+			}
+			joinReq.Result <- JoinResponse{
+				success:  true,
+				playerId: p.Id,
+			}
+			lobby.broadcastGameState()
+			return
+		}
+	}
+
+	// player without an id who joins can replace a disconnected id-less player
+	if joinReq.UserId == "" && lobby.inProgress() {
+		for _, p := range lobby.players {
+			if p.UserId != "" || p.IsOnline {
+				continue
 			}
 			p.IsOnline = true
 			p.Send = joinReq.Send
