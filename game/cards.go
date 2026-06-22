@@ -27,6 +27,7 @@ const (
 	Shuffle
 	DrawFromBottom
 	Favor
+	Nope
 )
 
 func (c Card) String() string {
@@ -63,6 +64,8 @@ func (c Card) String() string {
 		return "DRAW_FROM_BOTTOM"
 	case Favor:
 		return "FAVOR"
+	case Nope:
+		return "NOPE"
 	default:
 		return "UNKNOWN"
 	}
@@ -92,7 +95,7 @@ var ActionCardTotals = map[Card]TieredCardCount{
 	Shuffle:        {Small: 2, Medium: 4, Large: 6},
 	DrawFromBottom: {Small: 3, Medium: 4, Large: 7},
 	Favor:          {Small: 2, Medium: 4, Large: 6},
-	// Nope:           {Small: 4, Medium: 6, Large: 10},
+	Nope:           {Small: 4, Medium: 6, Large: 10},
 }
 
 var DefuseTotals = TieredCardCount{Small: 3, Medium: 7, Large: 10}
@@ -149,7 +152,7 @@ var (
 
 func init() {
 	cardNames = make(map[string]Card)
-	for i := Card(0); i <= Favor; i++ {
+	for i := Card(0); i <= Nope; i++ {
 		s := i.String()
 		if s != "UNKNOWN" {
 			cardNames[s] = i

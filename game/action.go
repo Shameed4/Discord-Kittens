@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"slices"
 	"strings"
@@ -18,7 +19,7 @@ func (lobby *Lobby) playerName(id int) string {
 	return lobby.players[id].Name
 }
 
-func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
+func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 	playerId := action.playerId
 	player := lobby.players[playerId]
 	name := player.Name
@@ -42,7 +43,6 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			fmt.Printf("Illegal state? Player id %d is offline but disconnected", playerId)
 		}
 		lobby.disconnectPlayer(playerId)
-		lobby.recordAction(LastAction{Public: fmt.Sprintf("%s disconnected", name)})
 
 	case DrawCard:
 		if err := lobby.assertTurnAndState([]TurnState{Normal, SeeingTheFuture}, isPlayerTurn, "draw card"); err != nil {
@@ -87,38 +87,30 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		}
 
 		lobby.discardCard(player, action.useCardIndex)
-
+		lobby.pendingAction = &PendingNopeableAction{
+			playerId:       playerId,
+			actionType:     PlayCard,
+			playedCard:     playedCard,
+			targetedPlayer: action.targetedPlayer,
+		}
+		lobby.turnState = AcceptingNopes
 		switch playedCard {
 		case Skip:
-			lobby.turnState = Normal
-			lobby.decreaseTurns()
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s played Skip", name)})
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to skip", name)})
 		case SeeTheFuture:
-			lobby.turnState = SeeingTheFuture
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s is seeing the future...", name)})
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to see the future", name)})
 		case AlterTheFuture:
-			lobby.turnState = AlteringTheFuture
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s is altering the future...", name)})
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to alter the future", name)})
 		case Attack:
-			lobby.turnState = Normal
-			lobby.setNextPlayerTurn(true)
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s attacked!", name)})
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to attack", name)})
 		case TargetedAttack:
-			lobby.turnState = Normal
-			lobby.setPlayerTurn(true, action.targetedPlayer)
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s targeted %s!", name, lobby.playerName(action.targetedPlayer))})
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to target %s", name, lobby.playerName(action.targetedPlayer))})
 		case Shuffle:
-			lobby.turnState = Normal
-			lobby.shuffleDeck()
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s shuffled the deck", name)})
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to shuffle", name)})
 		case DrawFromBottom:
-			lobby.turnState = Normal
-			drawn := lobby.removeBottomCard()
-			lobby.resolveDrawnCard(player, drawn, "drew from the bottom")
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to draw from bottom", name)})
 		case Favor:
-			lobby.turnState = AwaitingFavor
-			lobby.targetedPlayer = action.targetedPlayer
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s asked %s for a favor", name, lobby.playerName(action.targetedPlayer))})
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to ask %s for a favor", name, lobby.playerName(action.targetedPlayer))})
 		default:
 			return errors.New("Cannot play that card")
 		}
@@ -188,36 +180,16 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 			if err := assertValidMatchingCombo(comboCards); err != nil {
 				return err
 			}
-			deleteIndex := -1
-			switch comboSize {
-			case 2:
-				deleteIndex = rand.Intn(len(targetedPlayer.Hand))
-			case 3:
-				deleteIndex = slices.Index(targetedPlayer.Hand, action.requestedCard)
+			lobby.pendingAction = &PendingNopeableAction{
+				playerId:       playerId,
+				actionType:     Combo,
+				comboSize:      comboSize,
+				targetedPlayer: action.targetedPlayer,
+				requestedCard:  action.requestedCard,
 			}
-			if deleteIndex != -1 {
-				stolen := targetedPlayer.Hand[deleteIndex]
-				player.Hand = append(player.Hand, stolen)
-				targetedPlayer.Hand = slices.Delete(targetedPlayer.Hand, deleteIndex, deleteIndex+1)
+			lobby.turnState = AcceptingNopes
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to play a %d-combo (%s) on %s", name, comboSize, joinedComboCards, lobby.playerName(action.targetedPlayer))})
 
-				targetName := lobby.playerName(action.targetedPlayer)
-				var publicAction string
-				if comboSize == 2 {
-					publicAction = fmt.Sprintf("%s successfully stole from %s using a 2-combo (%s)", name, targetName, joinedComboCards)
-				} else {
-					publicAction = fmt.Sprintf("%s successfully stole %s from %s using a 3-combo (%s)", name, stolen, targetName, joinedComboCards)
-				}
-
-				lobby.recordAction(LastAction{
-					Public: publicAction,
-					Private: map[int]string{
-						playerId:              fmt.Sprintf("You stole %s from %s using a %d-combo (%s)", stolen, targetName, comboSize, joinedComboCards),
-						action.targetedPlayer: fmt.Sprintf("%s stole your %s using a %d-combo (%s)", name, stolen, comboSize, joinedComboCards),
-					},
-				})
-			} else {
-				lobby.recordAction(LastAction{Public: fmt.Sprintf("%s played a %d-combo (%s) on %s but got nothing", name, len(comboCards), strings.Join(cardSliceToStrings(comboCards), "+"), lobby.playerName(action.targetedPlayer))})
-			}
 		case 5:
 			if len(lobby.discardPile) == 0 {
 				return errors.New("No cards to take from the discard pile!")
@@ -258,4 +230,91 @@ func (lobby *Lobby) takePlayerAction(action PlayerAction) error {
 		lobby.decreaseTurns()
 	}
 	return nil
+}
+
+// when a nopeable action was not noped
+func (lobby *Lobby) confirmPlayerAction() {
+	action := lobby.pendingAction
+	if action == nil {
+		log.Printf("Action confirmed but lobby has no pending action")
+	}
+	playerId := action.playerId
+	player := lobby.players[playerId]
+	name := lobby.playerName(playerId)
+	switch action.actionType {
+	case PlayCard:
+		switch action.playedCard {
+		case Skip:
+			lobby.turnState = Normal
+			lobby.decreaseTurns()
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s successfully skipped", name)})
+		case SeeTheFuture:
+			lobby.turnState = SeeingTheFuture
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s is seeing the future...", name)})
+		case AlterTheFuture:
+			lobby.turnState = AlteringTheFuture
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s is altering the future...", name)})
+		case Attack:
+			lobby.turnState = Normal
+			lobby.setNextPlayerTurn(true)
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s attacked!", name)})
+		case TargetedAttack:
+			lobby.turnState = Normal
+			lobby.setPlayerTurn(true, action.targetedPlayer)
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s targeted %s!", name, lobby.playerName(action.targetedPlayer))})
+		case Shuffle:
+			lobby.turnState = Normal
+			lobby.shuffleDeck()
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s shuffled the deck", name)})
+		case DrawFromBottom:
+			lobby.turnState = Normal
+			drawn := lobby.removeBottomCard()
+			lobby.resolveDrawnCard(player, drawn, "drew from the bottom")
+		case Favor:
+			lobby.turnState = AwaitingFavor
+			lobby.targetedPlayer = action.targetedPlayer
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s asked %s for a favor", name, lobby.playerName(action.targetedPlayer))})
+		default:
+			log.Printf("Unknown card %s was received when confirming player action", action.playedCard.String())
+		}
+	case Combo:
+		lobby.turnState = Normal
+		comboSize := action.comboSize
+		deleteIndex := -1
+		targetedPlayer := lobby.players[action.targetedPlayer]
+		if len(targetedPlayer.Hand) > 0 {
+			switch comboSize {
+			case 2:
+				deleteIndex = rand.Intn(len(targetedPlayer.Hand))
+			case 3:
+				deleteIndex = slices.Index(targetedPlayer.Hand, action.requestedCard)
+			}
+		}
+		if deleteIndex != -1 {
+			stolen := targetedPlayer.Hand[deleteIndex]
+			player.Hand = append(player.Hand, stolen)
+			targetedPlayer.Hand = slices.Delete(targetedPlayer.Hand, deleteIndex, deleteIndex+1)
+
+			targetName := lobby.playerName(action.targetedPlayer)
+			var publicAction string
+			if comboSize == 2 {
+				publicAction = fmt.Sprintf("%s successfully stole from %s using a 2-combo", name, targetName)
+			} else {
+				publicAction = fmt.Sprintf("%s successfully stole %s from %s using a 3-combo", name, stolen, targetName)
+			}
+
+			lobby.recordAction(LastAction{
+				Public: publicAction,
+				Private: map[int]string{
+					playerId:              fmt.Sprintf("You stole %s from %s using a %d-combo", stolen, targetName, comboSize),
+					action.targetedPlayer: fmt.Sprintf("%s stole your %s using a %d-combo", name, stolen, comboSize),
+				},
+			})
+		} else {
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s played a %d-combo on %s but got nothing", name, comboSize, lobby.playerName(action.targetedPlayer))})
+		}
+	default:
+		log.Printf("Unknown action type %d confirmed ", action.actionType)
+	}
+	lobby.pendingAction = nil
 }

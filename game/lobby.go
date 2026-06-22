@@ -17,6 +17,7 @@ const (
 	AlteringTheFuture
 	AwaitingFavor
 	AwaitingDiscardTake
+	AcceptingNopes
 )
 
 func (t TurnState) String() string {
@@ -37,6 +38,8 @@ func (t TurnState) String() string {
 		return "AWAITING_FAVOR"
 	case AwaitingDiscardTake:
 		return "AWAITING_DISCARD_TAKE"
+	case AcceptingNopes:
+		return "ACCEPTING_NOPES"
 	default:
 		return "UNKNOWN"
 	}
@@ -75,6 +78,7 @@ type GameState struct {
 	Future         []string `json:"future,omitempty"`         // for see/alter the future
 	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
 	TargetedPlayer int      `json:"targetedPlayer"`           // for actions that require another player's response
+	IsNoped        bool     `json:"nopers,omitempty"`         // indicates whether pending action is noped
 	LastAction     string   `json:"lastAction,omitempty"`
 	Log            []string `json:"log,omitempty"`
 	Err            string   `json:"err,omitempty"`
@@ -112,6 +116,7 @@ const (
 	GiveFavor
 	Combo
 	TakeFromDiscard
+	PlayNope
 )
 
 var actionTypeNames = map[string]ActionType{
@@ -124,6 +129,7 @@ var actionTypeNames = map[string]ActionType{
 	"GIVE_FAVOR":        GiveFavor,
 	"COMBO":             Combo,
 	"TAKE_FROM_DISCARD": TakeFromDiscard,
+	"PLAY_NOPE":         PlayNope,
 }
 
 type PlayerAction struct {
@@ -137,7 +143,20 @@ type PlayerAction struct {
 	targetedPlayer   int            // player being targeted
 	comboIndices     []int          // list of card indices used for combo
 	requestedCard    Card           // card requested from 3 combo
+	wantNoped        bool           // when placing a nope, true means player wants to nope, false means yup
 	conn             chan GameState // only used for disconnect actions to ensure right channel is closed
+}
+
+type PendingNopeableAction struct {
+	playerId   int
+	actionType ActionType
+
+	// optional fields
+	playedCard     Card // for play card actions
+	comboSize      int  // for combo actions
+	targetedPlayer int  // player being targeted
+	requestedCard  Card // card requested from 3 combo
+	isNoped        bool
 }
 
 type Lobby struct {
@@ -153,6 +172,8 @@ type Lobby struct {
 	actionLog          []LastAction
 
 	targetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
+
+	pendingAction *PendingNopeableAction // relevant when card is nopeable
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
@@ -338,7 +359,7 @@ func (lobby *Lobby) run() {
 			lobby.handleJoin(joinReq)
 
 		case actionReq := <-lobby.ActionQueue:
-			if err := lobby.takePlayerAction(actionReq); err != nil {
+			if err := lobby.receivePlayerAction(actionReq); err != nil {
 				lobby.sendError(actionReq.playerId, err.Error())
 			} else {
 				lobby.broadcastGameState()
