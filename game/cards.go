@@ -126,7 +126,7 @@ func GetExtraDefuses(numPlayers int) int {
 	case numPlayers <= 6:
 		return DefuseTotals.Medium - numPlayers
 	default: // 7-10 players
-		return DefuseTotals.Medium - numPlayers
+		return DefuseTotals.Large - numPlayers
 	}
 }
 
