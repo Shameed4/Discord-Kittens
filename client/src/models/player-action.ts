@@ -8,6 +8,7 @@ export const ActionType = {
   GiveFavor:       'GIVE_FAVOR',
   Combo:           'COMBO',
   TakeFromDiscard: 'TAKE_FROM_DISCARD',
+  PlayNope:        'PLAY_NOPE',
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 
@@ -48,6 +49,11 @@ interface TakeFromDiscardAction {
   requestedCard: string;
 }
 
+interface PlayNopeAction {
+  action:    'PLAY_NOPE';
+  wantNoped: boolean;
+}
+
 export type ActionRequest =
   | StartGameAction
   | DrawCardAction
@@ -57,4 +63,5 @@ export type ActionRequest =
   | AlterFutureAction
   | GiveFavorAction
   | ComboAction
-  | TakeFromDiscardAction;
+  | TakeFromDiscardAction
+  | PlayNopeAction;

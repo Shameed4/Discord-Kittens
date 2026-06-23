@@ -14,7 +14,9 @@ import FavorGiver from './components/FavorGiver';
 import DiscardPicker from './components/DiscardPicker';
 import GameOverOverlay from './components/GameOverOverlay';
 import GameLog from './components/GameLog';
+import NopeBanner from './components/NopeBanner';
 import { getSeatPositions } from './table-utils';
+import { useNopeCountdown } from './use-nope-countdown';
 import {
   getUsername,
   getUserId,
@@ -36,6 +38,13 @@ export default function GamePage() {
     ConnectionStatus.Connecting,
   );
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
+
+  // Nope window: countdown ticks only while the server is accepting nopes.
+  const isAcceptingNopes = gameState?.turnState === 'ACCEPTING_NOPES';
+  const isNoped = gameState?.isNoped ?? false;
+  const { remaining: nopeRemaining, fraction: nopeFraction } = useNopeCountdown(
+    isAcceptingNopes ? gameState?.nopeDeadline : undefined,
+  );
 
   useEffect(() => {
     if (!lobbyName) {
@@ -158,6 +167,19 @@ export default function GamePage() {
 
   return (
     <div className="flex h-full overflow-hidden bg-[#0d0720]">
+      {/* Nope-window mood tint: amber while the action stands, red once noped.
+          Vignette (clear center) keeps the table readable; never blocks clicks. */}
+      {isAcceptingNopes && (
+        <div
+          aria-hidden
+          className="pointer-events-none fixed inset-0 z-40 animate-pulse"
+          style={{
+            background: `radial-gradient(ellipse at center, transparent 45%, ${
+              isNoped ? 'rgba(239,68,68,0.30)' : 'rgba(245,158,11,0.24)'
+            } 100%)`,
+          }}
+        />
+      )}
       {/* Main game area: table on top, hand at the bottom */}
       <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-3">
         {/* ── Round table ── */}
@@ -205,6 +227,15 @@ export default function GamePage() {
             {/* Center content */}
             <div className="relative z-10 flex max-w-full flex-col items-center gap-2 px-3">
               <LastActionBanner lastAction={gameState.lastAction} />
+
+              {/* Nope window countdown + verdict (visible to everyone) */}
+              {isAcceptingNopes && (
+                <NopeBanner
+                  isNoped={isNoped}
+                  remaining={nopeRemaining}
+                  fraction={nopeFraction}
+                />
+              )}
 
               {/* Deck + discard piles */}
               {inProgress && (
@@ -421,6 +452,7 @@ export default function GamePage() {
             <ActionBar
               gameState={gameState}
               selectedIndices={selectedIndices}
+              nopeRemaining={nopeRemaining}
               onAction={(action) => {
                 sendAction(action);
                 setSelectedIndices([]);

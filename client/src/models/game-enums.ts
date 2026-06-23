@@ -15,6 +15,7 @@ export const CardType = {
   Shuffle: 'SHUFFLE',
   DrawFromBottom: 'DRAW_FROM_BOTTOM',
   Favor: 'FAVOR',
+  Nope: 'NOPE',
 } as const;
 export type CardType = (typeof CardType)[keyof typeof CardType];
 
@@ -26,6 +27,7 @@ export const TurnState = {
   AwaitingKittenPlacement: 'AWAITING_KITTEN_PLACEMENT',
   AwaitingFavor: 'AWAITING_FAVOR',
   AwaitingDiscardTake: 'AWAITING_DISCARD_TAKE',
+  AcceptingNopes: 'ACCEPTING_NOPES',
   GameOver: 'GAME_OVER',
 } as const;
 export type TurnState = (typeof TurnState)[keyof typeof TurnState];
@@ -47,6 +49,7 @@ export const CardDisplayName: Record<CardType, string> = {
   SHUFFLE: 'Shuffle',
   DRAW_FROM_BOTTOM: 'Draw from Bottom',
   FAVOR: 'Favor',
+  NOPE: 'Nope',
 };
 
 export function isCatCard(card: CardType): boolean {

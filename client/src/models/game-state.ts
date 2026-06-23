@@ -14,6 +14,8 @@ export interface GameState {
 
   future?:         CardType[];
   discardOptions?: CardType[];
+  isNoped?:        boolean;
+  nopeDeadline?:   number;
   lastAction?:     string;
   log?:            string[];
   err?:            string;

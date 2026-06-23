@@ -96,6 +96,11 @@ const CARD_INFO: Record<CardType, CardInfo> = {
     emoji: '🎁',
     name: 'Favor',
   },
+  NOPE: {
+    bg: 'linear-gradient(135deg, #b91c1c, #450a0a)',
+    emoji: '🚫',
+    name: 'Nope',
+  },
 };
 
 const DEFAULT_BG = 'linear-gradient(135deg, #374151, #1f2937)';

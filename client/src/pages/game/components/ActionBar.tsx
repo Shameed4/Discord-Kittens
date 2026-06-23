@@ -8,16 +8,19 @@ import {
 import type { GameState } from '../../../models/game-state';
 import type { ActionRequest } from '../../../models/player-action';
 import TargetModal from './TargetModal';
+import NopeButton from './NopeButton';
 
 interface ActionBarProps {
   gameState: GameState;
   selectedIndices: number[];
+  nopeRemaining: number;
   onAction: (action: ActionRequest) => void;
 }
 
 export default function ActionBar({
   gameState,
   selectedIndices,
+  nopeRemaining,
   onAction,
 }: ActionBarProps) {
   const [showTargetModal, setShowTargetModal] = useState(false);
@@ -36,6 +39,19 @@ export default function ActionBar({
           Start Game
         </button>
       </div>
+    );
+  }
+
+  // Nope window applies to everyone (not just the active player), so handle it
+  // before the turn-based branches below.
+  if (turnState === 'ACCEPTING_NOPES') {
+    return (
+      <NopeButton
+        key={gameState.isNoped ? 'noped' : 'standing'}
+        gameState={gameState}
+        nopeRemaining={nopeRemaining}
+        onAction={onAction}
+      />
     );
   }
 
