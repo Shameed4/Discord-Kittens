@@ -242,6 +242,20 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 		if !lobby.pendingAction.isNoped && !action.wantNoped {
 			return errors.New("Card has already been yuped")
 		}
+		var nopedYupedStr string
+		if action.wantNoped {
+			nopedYupedStr = "noped"
+		} else {
+			nopedYupedStr = "yuped"
+		}
+		var originalMoveName string
+		if lobby.pendingAction.actionType == PlayCard {
+			originalMoveName = lobby.pendingAction.playedCard.CardName()
+		} else {
+			originalMoveName = fmt.Sprintf("%d-combo", lobby.pendingAction.comboSize)
+		}
+		originalPlayerName := lobby.playerName(lobby.pendingAction.playerId)
+		lobby.recordAction(LastAction{Public: fmt.Sprintf("%s %s %s's %s", name, nopedYupedStr, originalPlayerName, originalMoveName)})
 		player.Hand = slices.Delete(player.Hand, nopeIdx, nopeIdx+1)
 		lobby.pendingAction.isNoped = !lobby.pendingAction.isNoped
 		lobby.startNopeTimer()
