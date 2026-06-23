@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 )
 
 type TurnState int
@@ -79,6 +80,7 @@ type GameState struct {
 	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
 	TargetedPlayer int      `json:"targetedPlayer"`           // for actions that require another player's response
 	IsNoped        bool     `json:"nopers,omitempty"`         // indicates whether pending action is noped
+	NopeDeadline   int64    `json:"nopeDeadline,omitempty"`   // unix ms when the nope window closes
 	LastAction     string   `json:"lastAction,omitempty"`
 	Log            []string `json:"log,omitempty"`
 	Err            string   `json:"err,omitempty"`
@@ -174,6 +176,8 @@ type Lobby struct {
 	targetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
 
 	pendingAction *PendingNopeableAction // relevant when card is nopeable
+	nopeTimer     *time.Timer
+	nopeDeadline  time.Time // when the current nope window closes
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
@@ -354,6 +358,10 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 
 func (lobby *Lobby) run() {
 	for {
+		var nopeC <-chan time.Time
+		if lobby.nopeTimer != nil {
+			nopeC = lobby.nopeTimer.C
+		}
 		select {
 		case joinReq := <-lobby.JoinQueue:
 			lobby.handleJoin(joinReq)
@@ -364,6 +372,9 @@ func (lobby *Lobby) run() {
 			} else {
 				lobby.broadcastGameState()
 			}
+
+		case <-nopeC:
+			lobby.handleNopeTimerComplete()
 		}
 	}
 }

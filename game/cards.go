@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -69,6 +70,10 @@ func (c Card) String() string {
 	default:
 		return "UNKNOWN"
 	}
+}
+
+func (c Card) CardName() string {
+	return strings.ToLower(strings.ReplaceAll(c.String(), "_", " "))
 }
 
 type TieredCardCount struct {

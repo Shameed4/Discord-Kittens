@@ -8,7 +8,10 @@ import (
 	"math/rand"
 	"slices"
 	"strings"
+	"time"
 )
+
+const nopeDelay = 3500 * time.Millisecond
 
 // playerName returns the display name for a player id, falling back to a
 // generic label if the id is somehow out of range.
@@ -19,6 +22,7 @@ func (lobby *Lobby) playerName(id int) string {
 	return lobby.players[id].Name
 }
 
+// handles action received by player and executes it if not nopeable
 func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 	playerId := action.playerId
 	player := lobby.players[playerId]
@@ -86,33 +90,24 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 			return errors.New("Cannot ask a favor from a player without cards!")
 		}
 
+		switch playedCard {
+		case Skip, SeeTheFuture, AlterTheFuture, Attack, Shuffle, DrawFromBottom:
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to %s", name, playedCard.CardName())})
+		case TargetedAttack:
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to target %s", name, lobby.playerName(action.targetedPlayer))})
+		case Favor:
+			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to ask %s for a favor", name, lobby.playerName(action.targetedPlayer))})
+		default:
+			return errors.New("Cannot play that card")
+		}
 		lobby.discardCard(player, action.useCardIndex)
+		lobby.turnState = AcceptingNopes
+		lobby.startNopeTimer()
 		lobby.pendingAction = &PendingNopeableAction{
 			playerId:       playerId,
 			actionType:     PlayCard,
 			playedCard:     playedCard,
 			targetedPlayer: action.targetedPlayer,
-		}
-		lobby.turnState = AcceptingNopes
-		switch playedCard {
-		case Skip:
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to skip", name)})
-		case SeeTheFuture:
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to see the future", name)})
-		case AlterTheFuture:
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to alter the future", name)})
-		case Attack:
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to attack", name)})
-		case TargetedAttack:
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to target %s", name, lobby.playerName(action.targetedPlayer))})
-		case Shuffle:
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to shuffle", name)})
-		case DrawFromBottom:
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to draw from bottom", name)})
-		case Favor:
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to ask %s for a favor", name, lobby.playerName(action.targetedPlayer))})
-		default:
-			return errors.New("Cannot play that card")
 		}
 
 	case AlterFuture:
@@ -188,6 +183,7 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 				requestedCard:  action.requestedCard,
 			}
 			lobby.turnState = AcceptingNopes
+			lobby.startNopeTimer()
 			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s wants to play a %d-combo (%s) on %s", name, comboSize, joinedComboCards, lobby.playerName(action.targetedPlayer))})
 
 		case 5:
@@ -228,16 +224,60 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 		}
 		lobby.turnState = Normal
 		lobby.decreaseTurns()
+
+	case PlayNope:
+		if !player.IsAlive {
+			return errors.New("Must be alive to nope")
+		}
+		if lobby.pendingAction == nil {
+			return errors.New("No action to nope")
+		}
+		nopeIdx := slices.Index(player.Hand, Nope)
+		if nopeIdx == -1 {
+			return errors.New("You do not have a nope")
+		}
+		if lobby.pendingAction.isNoped && action.wantNoped {
+			return errors.New("Card has already been noped")
+		}
+		if !lobby.pendingAction.isNoped && !action.wantNoped {
+			return errors.New("Card has already been yuped")
+		}
+		player.Hand = slices.Delete(player.Hand, nopeIdx, nopeIdx+1)
+		lobby.pendingAction.isNoped = !lobby.pendingAction.isNoped
+		lobby.startNopeTimer()
 	}
 	return nil
+}
+
+// startNopeTimer (re)starts the nope window, keeping the timer and the
+// broadcastable deadline in sync. Safe to call whether or not a timer exists.
+func (lobby *Lobby) startNopeTimer() {
+	lobby.nopeDeadline = time.Now().Add(nopeDelay)
+	if lobby.nopeTimer == nil {
+		lobby.nopeTimer = time.NewTimer(nopeDelay)
+	} else {
+		lobby.nopeTimer.Reset(nopeDelay)
+	}
+}
+
+func (lobby *Lobby) handleNopeTimerComplete() {
+	if lobby.pendingAction == nil {
+		log.Println("Nope timer completed but no pending action")
+		return
+	}
+	if lobby.pendingAction.isNoped {
+		lobby.denyPlayerAction()
+	} else {
+		lobby.confirmPlayerAction()
+	}
+	lobby.pendingAction = nil
+	lobby.nopeTimer = nil
+	lobby.broadcastGameState()
 }
 
 // when a nopeable action was not noped
 func (lobby *Lobby) confirmPlayerAction() {
 	action := lobby.pendingAction
-	if action == nil {
-		log.Printf("Action confirmed but lobby has no pending action")
-	}
 	playerId := action.playerId
 	player := lobby.players[playerId]
 	name := lobby.playerName(playerId)
@@ -271,9 +311,15 @@ func (lobby *Lobby) confirmPlayerAction() {
 			drawn := lobby.removeBottomCard()
 			lobby.resolveDrawnCard(player, drawn, "drew from the bottom")
 		case Favor:
-			lobby.turnState = AwaitingFavor
-			lobby.targetedPlayer = action.targetedPlayer
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s asked %s for a favor", name, lobby.playerName(action.targetedPlayer))})
+			targetedPlayer := lobby.players[action.targetedPlayer]
+			if len(targetedPlayer.Hand) > 0 {
+				lobby.targetedPlayer = action.targetedPlayer
+				lobby.turnState = AwaitingFavor
+				lobby.recordAction(LastAction{Public: fmt.Sprintf("%s is asking %s for a favor", name, lobby.playerName(action.targetedPlayer))})
+			} else {
+				lobby.turnState = Normal
+				lobby.recordAction(LastAction{Public: fmt.Sprintf("%s ran out of cards and could not give %s a favor", name, lobby.playerName(action.targetedPlayer))})
+			}
 		default:
 			log.Printf("Unknown card %s was received when confirming player action", action.playedCard.String())
 		}
@@ -316,5 +362,20 @@ func (lobby *Lobby) confirmPlayerAction() {
 	default:
 		log.Printf("Unknown action type %d confirmed ", action.actionType)
 	}
-	lobby.pendingAction = nil
+}
+
+// when a nopeable action was noped
+func (lobby *Lobby) denyPlayerAction() {
+	action := lobby.pendingAction
+	playerId := action.playerId
+	name := lobby.playerName(playerId)
+	lobby.turnState = Normal
+	switch action.actionType {
+	case PlayCard:
+		lobby.recordAction(LastAction{Public: fmt.Sprintf("%s's %s failed due to being noped", name, action.playedCard.CardName())})
+	case Combo:
+		lobby.recordAction(LastAction{Public: fmt.Sprintf("%s's %d-combo failed due to being noped", name, action.comboSize)})
+	default:
+		log.Printf("Unknown action type %d denied from nope ", action.actionType)
+	}
 }

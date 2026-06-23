@@ -149,7 +149,11 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		TargetedPlayer: lobby.targetedPlayer,
 		DiscardOptions: discardOptions,
 		LastAction:     lobby.lastActionFor(playerIdx),
+		IsNoped:        lobby.pendingAction != nil && lobby.pendingAction.isNoped,
 		Log:            log,
+	}
+	if lobby.turnState == AcceptingNopes {
+		res.NopeDeadline = lobby.nopeDeadline.UnixMilli()
 	}
 	for _, player := range lobby.players {
 		res.Players = append(res.Players, PlayerGameState{
