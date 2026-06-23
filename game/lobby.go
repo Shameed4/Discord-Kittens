@@ -79,7 +79,7 @@ type GameState struct {
 	Future         []string `json:"future,omitempty"`         // for see/alter the future
 	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
 	TargetedPlayer int      `json:"targetedPlayer"`           // for actions that require another player's response
-	IsNoped        bool     `json:"nopers,omitempty"`         // indicates whether pending action is noped
+	IsNoped        bool     `json:"isNoped,omitempty"`        // indicates whether pending action is noped
 	NopeDeadline   int64    `json:"nopeDeadline,omitempty"`   // unix ms when the nope window closes
 	LastAction     string   `json:"lastAction,omitempty"`
 	Log            []string `json:"log,omitempty"`

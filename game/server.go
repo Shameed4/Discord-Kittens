@@ -32,6 +32,7 @@ type ActionRequest struct {
 	TargetedPlayer   int    `json:"targetedPlayer"`   // player being targeted
 	ComboIndices     []int  `json:"comboIndices"`     // list of cards used for combo
 	RequestedCardStr string `json:"requestedCard"`    // card requested for combo
+	WantNoped        bool   `json:"wantNoped"`        // for PLAY_NOPE: true = nope, false = yup
 }
 
 var (
@@ -210,6 +211,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			alterFutureOrder: actionRequest.AlterFutureOrder,
 			targetedPlayer:   actionRequest.TargetedPlayer,
 			comboIndices:     actionRequest.ComboIndices,
+			wantNoped:        actionRequest.WantNoped,
 		}
 
 		if actionRequest.RequestedCardStr != "" {
