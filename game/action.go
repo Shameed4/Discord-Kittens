@@ -256,7 +256,7 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 		}
 		originalPlayerName := lobby.playerName(lobby.pendingAction.playerId)
 		lobby.recordAction(LastAction{Public: fmt.Sprintf("%s %s %s's %s", name, nopedYupedStr, originalPlayerName, originalMoveName)})
-		player.Hand = slices.Delete(player.Hand, nopeIdx, nopeIdx+1)
+		lobby.discardCard(player, nopeIdx)
 		lobby.pendingAction.isNoped = !lobby.pendingAction.isNoped
 		lobby.startNopeTimer()
 	}
