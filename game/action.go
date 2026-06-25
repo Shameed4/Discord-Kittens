@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const nopeDelay = 3500 * time.Millisecond
+const nopeDelay = 5000 * time.Millisecond
 
 // playerName returns the display name for a player id, falling back to a
 // generic label if the id is somehow out of range.
