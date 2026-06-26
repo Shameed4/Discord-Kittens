@@ -14,13 +14,12 @@ export default defineConfig({
   server: {
     allowedHosts: true,
     proxy: {
+      // Single /api entry (ws: true handles the /api/ws upgrade too). No rewrite:
+      // the backend serves under /api, matching the Vercel rewrite and Discord
+      // URL mapping, which also forward the prefix unchanged.
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
-      '/ws': {
-        target: 'ws://localhost:8080',
         ws: true,
       },
     },

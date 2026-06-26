@@ -244,9 +244,12 @@ func main() {
 	lobbies["test"] = lobby
 	go lobby.run()
 
-	http.HandleFunc("/lobby", handleCreateLobby)
-	http.HandleFunc("/ws", handleWebSocket)
-	http.HandleFunc("/token", handleToken)
+	// Routes are served under /api so a single path prefix works across every
+	// environment: the Vite dev proxy, the Vercel rewrite, and the Discord
+	// activity URL mapping all forward /api verbatim (none of them strip it).
+	http.HandleFunc("/api/lobby", handleCreateLobby)
+	http.HandleFunc("/api/ws", handleWebSocket)
+	http.HandleFunc("/api/token", handleToken)
 
 	port := os.Getenv("PORT")
 	if port == "" {

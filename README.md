@@ -7,7 +7,7 @@ A real-time multiplayer Exploding Kittens clone built with a **Go WebSocket back
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  Client (React + TypeScript)                                 │
-│  Discord embedded-app SDK · Vite dev server ──proxy──► /api/*, /ws │
+│  Discord embedded-app SDK · Vite dev server ──proxy──► /api/* │
 └──────────────┬───────────────────────────────┬───────────────┘
                │ HTTP (lobby, OAuth token)     │ WebSocket (game actions + state)
                ▼                               ▼
@@ -154,7 +154,7 @@ go run .
 cd client
 npm install
 npm run dev
-# Vite dev server proxies /api and /ws to :8080
+# Vite dev server proxies /api (including the /api/ws upgrade) to :8080
 ```
 
 Standalone, open the frontend, create a lobby, and share the lobby name with other players. As a Discord activity, launch it from a voice channel -- the lobby is created and joined automatically from the activity instance.

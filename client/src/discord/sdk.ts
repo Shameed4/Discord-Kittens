@@ -57,7 +57,7 @@ async function doSetupDiscordSdk(): Promise<DiscordAuth | null> {
     scope: ['identify'],
   });
 
-  // Exchange the code for an access_token via our backend (/api/token -> :8080/token)
+  // Exchange the code for an access_token via our backend (/api/token)
   const response = await fetch('/api/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
