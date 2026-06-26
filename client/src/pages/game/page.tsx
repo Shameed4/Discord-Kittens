@@ -70,9 +70,13 @@ export default function GamePage() {
       if (username) params.set('username', username);
       const userId = getUserId();
       if (userId) params.set('userId', userId);
-      const socket = new WebSocket(
-        `${protocol}//${window.location.host}/ws?${params.toString()}`,
-      );
+      // Vercel rewrites can't proxy WebSockets, so in production the socket must
+      // hit the backend directly. VITE_WS_URL (e.g. wss://discord-kittens.onrender.com)
+      // is set at build time on Vercel; when unset we fall back to the current host,
+      // which the Vite dev server proxies to :8080.
+      const wsBase =
+        import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
+      const socket = new WebSocket(`${wsBase}/ws?${params.toString()}`);
       ws.current = socket;
       socket.onopen = () => {
         attempt = 0; // successful connection — reset backoff
