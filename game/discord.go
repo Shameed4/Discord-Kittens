@@ -13,7 +13,8 @@ type TokenRequest struct {
 }
 
 // handleToken exchanges a Discord OAuth2 authorization code for an access token.
-// The Vite dev server proxies /api/token here, stripping the /api prefix.
+// Served at /api/token; the frontend reaches it via the same /api proxy used
+// for every other backend route.
 func handleToken(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

@@ -70,13 +70,17 @@ export default function GamePage() {
       if (username) params.set('username', username);
       const userId = getUserId();
       if (userId) params.set('userId', userId);
-      // Vercel rewrites can't proxy WebSockets, so in production the socket must
-      // hit the backend directly. VITE_WS_URL (e.g. wss://discord-kittens.onrender.com)
-      // is set at build time on Vercel; when unset we fall back to the current host,
-      // which the Vite dev server proxies to :8080.
-      const wsBase =
-        import.meta.env.VITE_WS_URL || `${protocol}//${window.location.host}`;
-      const socket = new WebSocket(`${wsBase}/ws?${params.toString()}`);
+      // The socket base is context-aware:
+      // - Inside Discord it must stay same-origin so Discord's proxy forwards it;
+      //   its CSP blocks direct connections to the backend host.
+      // - Standalone, Vercel can't proxy WebSockets, so VITE_WS_URL (set at build
+      //   time, e.g. wss://discord-kittens.onrender.com) points straight at Render.
+      // - In dev, VITE_WS_URL is unset and the Vite proxy forwards /api/ws to :8080.
+      const sameOrigin = `${protocol}//${window.location.host}`;
+      const wsBase = discordInstanceId
+        ? sameOrigin
+        : import.meta.env.VITE_WS_URL || sameOrigin;
+      const socket = new WebSocket(`${wsBase}/api/ws?${params.toString()}`);
       ws.current = socket;
       socket.onopen = () => {
         attempt = 0; // successful connection — reset backoff
@@ -122,7 +126,7 @@ export default function GamePage() {
       ws.current?.close();
       ws.current = null;
     };
-  }, [lobbyName, autoCreate, navigate]);
+  }, [lobbyName, autoCreate, navigate, discordInstanceId]);
 
   function sendAction(action: ActionRequest) {
     if (ws.current?.readyState === WebSocket.OPEN)
