@@ -4,11 +4,11 @@ export const CardType = {
   Skip: 'SKIP',
   Attack: 'ATTACK',
   TargetedAttack: 'TARGETED_ATTACK',
-  Cat1: 'CAT1',
-  Cat2: 'CAT2',
-  Cat3: 'CAT3',
-  Cat4: 'CAT4',
-  Cat5: 'CAT5',
+  Tacocat: 'TACOCAT',
+  HairyPotatoCat: 'HAIRY_POTATO_CAT',
+  Cattermelon: 'CATTERMELON',
+  RainbowRalphingCat: 'RAINBOW_RALPHING_CAT',
+  RageCat: 'RAGE_CAT',
   FeralCat: 'FERAL_CAT',
   SeeTheFuture: 'SEE_THE_FUTURE',
   AlterTheFuture: 'ALTER_THE_FUTURE',
@@ -38,11 +38,11 @@ export const CardDisplayName: Record<CardType, string> = {
   SKIP: 'Skip',
   ATTACK: 'Attack',
   TARGETED_ATTACK: 'Targeted Attack',
-  CAT1: 'Taco Cat',
-  CAT2: 'Beard Cat',
-  CAT3: 'Hairy Potato Cat',
-  CAT4: 'Cattermelon',
-  CAT5: 'Rainbow-Ralphing Cat',
+  TACOCAT: 'Tacocat',
+  HAIRY_POTATO_CAT: 'Hairy Potato Cat',
+  CATTERMELON: 'Cattermelon',
+  RAINBOW_RALPHING_CAT: 'Rainbow-Ralphing Cat',
+  RAGE_CAT: 'Rage Cat',
   FERAL_CAT: 'Feral Cat',
   SEE_THE_FUTURE: 'See the Future',
   ALTER_THE_FUTURE: 'Alter the Future',
@@ -54,11 +54,11 @@ export const CardDisplayName: Record<CardType, string> = {
 
 export function isCatCard(card: CardType): boolean {
   return (
-    card === 'CAT1' ||
-    card === 'CAT2' ||
-    card === 'CAT3' ||
-    card === 'CAT4' ||
-    card === 'CAT5' ||
+    card === 'TACOCAT' ||
+    card === 'HAIRY_POTATO_CAT' ||
+    card === 'CATTERMELON' ||
+    card === 'RAINBOW_RALPHING_CAT' ||
+    card === 'RAGE_CAT' ||
     card === 'FERAL_CAT'
   );
 }

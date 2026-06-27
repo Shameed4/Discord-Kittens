@@ -17,11 +17,11 @@ const (
 	Skip
 	Attack
 	TargetedAttack
-	Cat1
-	Cat2
-	Cat3
-	Cat4
-	Cat5
+	Tacocat
+	HairyPotatoCat
+	Cattermelon
+	RainbowRalphingCat
+	RageCat
 	FeralCat
 	SeeTheFuture
 	AlterTheFuture
@@ -43,16 +43,16 @@ func (c Card) String() string {
 		return "ATTACK"
 	case TargetedAttack:
 		return "TARGETED_ATTACK"
-	case Cat1:
-		return "CAT1"
-	case Cat2:
-		return "CAT2"
-	case Cat3:
-		return "CAT3"
-	case Cat4:
-		return "CAT4"
-	case Cat5:
-		return "CAT5"
+	case Tacocat:
+		return "TACOCAT"
+	case HairyPotatoCat:
+		return "HAIRY_POTATO_CAT"
+	case Cattermelon:
+		return "CATTERMELON"
+	case RainbowRalphingCat:
+		return "RAINBOW_RALPHING_CAT"
+	case RageCat:
+		return "RAGE_CAT"
 	case FeralCat:
 		return "FERAL_CAT"
 	case SeeTheFuture:
@@ -83,12 +83,12 @@ type TieredCardCount struct {
 }
 
 var ActionCardTotals = map[Card]TieredCardCount{
-	// The 5 standard cat cards (Tacocat, Hairy Potato, Cattermelon, Rainbow, Beard)
-	Cat1: {Small: 3, Medium: 4, Large: 7},
-	Cat2: {Small: 3, Medium: 4, Large: 7},
-	Cat3: {Small: 3, Medium: 4, Large: 7},
-	Cat4: {Small: 3, Medium: 4, Large: 7},
-	Cat5: {Small: 3, Medium: 4, Large: 7},
+	// The 5 standard cat cards
+	Tacocat:            {Small: 3, Medium: 4, Large: 7},
+	HairyPotatoCat:     {Small: 3, Medium: 4, Large: 7},
+	Cattermelon:        {Small: 3, Medium: 4, Large: 7},
+	RainbowRalphingCat: {Small: 3, Medium: 4, Large: 7},
+	RageCat:            {Small: 3, Medium: 4, Large: 7},
 
 	// Special Action Cards
 	FeralCat:       {Small: 2, Medium: 4, Large: 6},
@@ -146,7 +146,7 @@ func ParseCard(s string) (Card, error) {
 }
 
 func (c Card) isCat() bool {
-	return c == Cat1 || c == Cat2 || c == Cat3 || c == Cat4 || c == Cat5 || c == FeralCat
+	return c == Tacocat || c == HairyPotatoCat || c == Cattermelon || c == RainbowRalphingCat || c == RageCat || c == FeralCat
 }
 
 // Global state

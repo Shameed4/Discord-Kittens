@@ -41,30 +41,30 @@ const CARD_INFO: Record<CardType, CardInfo> = {
     emoji: '🎯',
     name: 'Target',
   },
-  CAT1: {
+  TACOCAT: {
     bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
     emoji: '🌮',
     name: 'Taco',
   },
-  CAT2: {
-    bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
-    emoji: '😡',
-    name: 'Rage',
-  },
-  CAT3: {
+  HAIRY_POTATO_CAT: {
     bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
     emoji: '🥔',
     name: 'Potato',
   },
-  CAT4: {
+  CATTERMELON: {
     bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
     emoji: '🍉',
     name: 'Melon',
   },
-  CAT5: {
+  RAINBOW_RALPHING_CAT: {
     bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
     emoji: '🌈',
     name: 'Rainbow',
+  },
+  RAGE_CAT: {
+    bg: 'linear-gradient(135deg, #7e22ce, #4c1d95)',
+    emoji: '😡',
+    name: 'Rage',
   },
   FERAL_CAT: {
     bg: 'linear-gradient(135deg, #6b21a8, #3b0764)',
