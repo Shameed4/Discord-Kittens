@@ -149,9 +149,13 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 		requester := lobby.playersMap[lobby.currentPlayerId]
 		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
 		requester.Hand = append(requester.Hand, transferredCard)
+		requesterName := lobby.playerName(lobby.currentPlayerId)
 		lobby.recordAction(LastAction{
-			Public:  fmt.Sprintf("%s gave a card to %s", name, lobby.playerName(lobby.currentPlayerId)),
-			Private: map[int]string{lobby.currentPlayerId: fmt.Sprintf("%s gave you %s", name, transferredCard)},
+			Public: fmt.Sprintf("%s gave a card to %s", name, requesterName),
+			Private: map[int]string{
+				lobby.currentPlayerId: fmt.Sprintf("%s gave you %s as a favor", name, transferredCard),
+				playerId:              fmt.Sprintf("You gave %s to %s as a favor", transferredCard, requesterName),
+			},
 		})
 
 	case Combo:
