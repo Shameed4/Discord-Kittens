@@ -51,6 +51,7 @@ type Player struct {
 	Id       int
 	UserId   string // stable cross-session identity (e.g. Discord user id); used to reconnect returning players
 	Name     string
+	Avatar   string // avatar image URL; empty when the player has none (client falls back to an emoji)
 	IsAlive  bool
 	IsOnline bool
 
@@ -60,6 +61,7 @@ type Player struct {
 type PlayerGameState struct {
 	Id        int    `json:"id"`
 	Name      string `json:"name"`
+	Avatar    string `json:"avatar"`
 	CardCount int    `json:"cardCount"`
 	IsAlive   bool   `json:"isAlive"`
 	IsOnline  bool   `json:"isOnline"`
@@ -96,6 +98,7 @@ type LastAction struct {
 type JoinRequest struct {
 	Name   string
 	UserId string
+	Avatar string
 	Send   chan GameState
 	Result chan JoinResponse
 }
@@ -296,6 +299,9 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 			if joinReq.Name != "" {
 				p.Name = joinReq.Name
 			}
+			if joinReq.Avatar != "" {
+				p.Avatar = joinReq.Avatar
+			}
 			joinReq.Result <- JoinResponse{
 				success:  true,
 				playerId: p.Id,
@@ -315,6 +321,9 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 			p.Send = joinReq.Send
 			if joinReq.Name != "" {
 				p.Name = joinReq.Name
+			}
+			if joinReq.Avatar != "" {
+				p.Avatar = joinReq.Avatar
 			}
 			joinReq.Result <- JoinResponse{
 				success:  true,
@@ -343,6 +352,7 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 		Id:       newId,
 		UserId:   joinReq.UserId,
 		Name:     name,
+		Avatar:   joinReq.Avatar,
 		Send:     joinReq.Send,
 		IsOnline: true,
 		IsAlive:  true,

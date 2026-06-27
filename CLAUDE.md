@@ -46,7 +46,7 @@ A real-time multiplayer Exploding Kittens clone that runs as a Discord activity 
 
 **GameState is personalized:** `getGameState(playerIdx)` builds a snapshot for each player individually — other players' hands are hidden (only `cardCount` exposed); `future`/`discardOptions` are only populated for the active player in the relevant states; and the action log / `lastAction` are resolved per-player (a `LastAction.Private` message overrides the public one, e.g. to reveal a stolen card only to the players involved).
 
-**Reconnection:** Players carry a stable `UserId` (the Discord user id). `handleJoin` reconnects a returning player to their existing seat by `UserId`, even mid-game. An id-less player can reclaim a disconnected id-less seat. The WS query params are `lobby`, `username`, `userId`, and `create=1` (Discord auto-creates the instance lobby on the fly).
+**Reconnection:** Players carry a stable `UserId` (the Discord user id). `handleJoin` reconnects a returning player to their existing seat by `UserId`, even mid-game. An id-less player can reclaim a disconnected id-less seat. The WS query params are `lobby`, `username`, `userId`, `avatar`, and `create=1` (Discord auto-creates the instance lobby on the fly). `username`/`userId`/`avatar` are resolved client-side from the Discord SDK user object (`discord/sdk.ts`); each player's `avatar` is broadcast in `GameState` so seats render the Discord profile image, with an emoji fallback when it's empty or fails to load.
 
 **Lobby lifecycle:** A hardcoded `"test"` lobby is created on startup. `POST /api/lobby` creates named lobbies; `create=1` on `/api/ws` auto-creates one atomically. On game over the lobby's `turnState` becomes `GameOver` but the lobby entry persists in the `lobbies` map.
 

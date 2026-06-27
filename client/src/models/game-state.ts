@@ -24,6 +24,7 @@ export interface GameState {
 export interface PlayerState {
   id:        number;
   name:      string;
+  avatar:    string; // avatar image URL; "" when the player has none (falls back to an emoji)
   cardCount: number;
   isAlive:   boolean;
   isOnline:  boolean;

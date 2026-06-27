@@ -1,5 +1,5 @@
 // client/src/pages/game/components/PlayerSeat.tsx
-import type { CSSProperties } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { GameState, PlayerState } from '../../../models/game-state';
 
 // One emoji per player slot, cycled by array index. Local player always gets 😎.
@@ -27,8 +27,11 @@ export default function PlayerSeat({
   mirrored,
   style,
 }: PlayerSeatProps) {
-  const { id, name, cardCount, isAlive, isOnline } = playerState;
+  const { id, name, avatar, cardCount, isAlive, isOnline } = playerState;
   const isLocal = id === gameState.playerId;
+  // Fall back to the emoji if the avatar URL is missing or fails to load.
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const showAvatar = Boolean(avatar) && !avatarFailed;
   const isTurn = id === gameState.turnId && isAlive && gameState.inProgress;
 
   const avatarPx  = Math.round(44 * seatScale);
@@ -71,8 +74,18 @@ export default function PlayerSeat({
         justifyContent: 'center',
         fontSize: emojiFpx,
         filter: !isAlive ? 'grayscale(1) brightness(0.5)' : 'none',
+        overflow: 'hidden',
       }}>
-        {emoji}
+        {showAvatar ? (
+          <img
+            src={avatar}
+            alt={name}
+            onError={() => setAvatarFailed(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : (
+          emoji
+        )}
       </div>
 
       {/* Online indicator */}

@@ -1,5 +1,5 @@
 // Import the SDK
-import { DiscordSDK, Common } from '@discord/embedded-app-sdk';
+import { DiscordSDK, Common, patchUrlMappings } from '@discord/embedded-app-sdk';
 
 function isDiscordActivity(): boolean {
   return new URLSearchParams(window.location.search).has('frame_id');
@@ -38,6 +38,15 @@ async function doSetupDiscordSdk(): Promise<DiscordAuth | null> {
 
   // Wait for the host (Discord client) to be ready
   await discordSdk.ready();
+
+  // The activity iframe's CSP only permits same-origin and the Discord proxy, so
+  // a direct <img src="https://cdn.discordapp.com/..."> for avatars is blocked.
+  // Route the CDN through the proxy and let the SDK rewrite src attributes so the
+  // avatar URLs resolve. Requires a matching URL Mapping in the Discord Developer
+  // Portal: prefix "/cdn" -> target "cdn.discordapp.com".
+  patchUrlMappings([{ prefix: '/cdn', target: 'cdn.discordapp.com' }], {
+    patchSrcAttributes: true,
+  });
 
   // Lock mobile to landscape (no-op / unsupported on desktop; harmless).
   try {
@@ -78,12 +87,35 @@ export function getUsername(): string | null {
   return auth.user.global_name ?? auth.user.username;
 }
 
+// Avatar image URL for the authenticated Discord user, or null when running
+// outside a Discord context. Built client-side from the SDK user object; falls
+// back to the user's default Discord avatar when they have no custom one.
+export function getUserImage(): string | null {
+  if (!auth) return null;
+  return avatarUrl(auth.user.id, auth.user.avatar);
+}
+
 // Stable Discord user id for the authenticated user, or null when running
 // outside an authenticated Discord context. The backend uses this to reconnect
 // a player to their existing seat when they rejoin a lobby they left.
 export function getUserId(): string | null {
   if (!auth) return null;
   return auth.user.id;
+}
+
+// Builds the CDN URL for a user's avatar. Animated avatars (hash prefixed
+// "a_") are served as gifs; everything else as png.
+function avatarUrl(id: string, avatar: string | null | undefined): string {
+  if (!avatar) return defaultAvatarUrl(id);
+  const ext = avatar.startsWith('a_') ? 'gif' : 'png';
+  return `https://cdn.discordapp.com/avatars/${id}/${avatar}.${ext}?size=128`;
+}
+
+// The default Discord avatar URL. For accounts on the new username system (no
+// discriminator) the index is (id >> 22) % 6.
+function defaultAvatarUrl(id: string): string {
+  const idx = Number((BigInt(id) >> 22n) % 6n);
+  return `https://cdn.discordapp.com/embed/avatars/${idx}.png`;
 }
 
 export { discordSdk };

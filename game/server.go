@@ -121,6 +121,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// request to join lobby
 	username := r.URL.Query().Get("username")
 	userId := r.URL.Query().Get("userId")
+	avatar := r.URL.Query().Get("avatar")
 	// Buffered so a briefly-slow client doesn't block the lobby goroutine on
 	// send; a genuinely wedged client fills the buffer and is dropped (see
 	// sendTo). Sized for many pending states without growing unbounded.
@@ -129,6 +130,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	joinReq := JoinRequest{
 		Name:   username,
 		UserId: userId,
+		Avatar: avatar,
 		Send:   gameStateChan,
 		Result: joinResultChan,
 	}

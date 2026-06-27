@@ -20,6 +20,7 @@ import { useNopeCountdown } from './use-nope-countdown';
 import {
   getUsername,
   getUserId,
+  getUserImage,
   getInstanceId,
   setupDiscordSdk,
 } from '../../discord/sdk';
@@ -70,6 +71,8 @@ export default function GamePage() {
       if (username) params.set('username', username);
       const userId = getUserId();
       if (userId) params.set('userId', userId);
+      const userImage = getUserImage();
+      if (userImage) params.set('avatar', userImage);
       // The socket base is context-aware:
       // - Inside Discord it must stay same-origin so Discord's proxy forwards it;
       //   its CSP blocks direct connections to the backend host.
