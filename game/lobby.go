@@ -122,6 +122,7 @@ const (
 	Combo
 	TakeFromDiscard
 	PlayNope
+	RandomizeOrder
 )
 
 var actionTypeNames = map[string]ActionType{
@@ -135,6 +136,7 @@ var actionTypeNames = map[string]ActionType{
 	"COMBO":             Combo,
 	"TAKE_FROM_DISCARD": TakeFromDiscard,
 	"PLAY_NOPE":         PlayNope,
+	"RANDOMIZE_ORDER":   RandomizeOrder,
 }
 
 type PlayerAction struct {
@@ -165,18 +167,18 @@ type PendingNopeableAction struct {
 }
 
 type Lobby struct {
-	deck               []Card
-	playersMap         map[int]*Player
-	playersList        []*Player
-	nextPlayerId       int
-	currentPlayerIndex int
-	turnState          TurnState
-	livingPlayers      int
-	turnsToTake        int
-	underAttack        bool
-	discardPile        []Card
-	lastAction         LastAction
-	actionLog          []LastAction
+	deck            []Card
+	playersMap      map[int]*Player
+	playersList     []*Player
+	nextPlayerId    int
+	currentPlayerId int
+	turnState       TurnState
+	livingPlayers   int
+	turnsToTake     int
+	underAttack     bool
+	discardPile     []Card
+	lastAction      LastAction
+	actionLog       []LastAction
 
 	targetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
 
@@ -209,6 +211,7 @@ func (lobby *Lobby) startGame() error {
 	lobby.livingPlayers = numPlayers
 	lobby.turnState = Normal
 	lobby.actionLog = nil
+	lobby.currentPlayerId = lobby.playersList[0].Id
 
 	// Create a pool of safe cards
 	var safeDeck []Card
@@ -253,7 +256,7 @@ func (lobby *Lobby) startGame() error {
 func (lobby *Lobby) eliminatePlayer(playerId int) {
 	lobby.livingPlayers--
 	lobby.playersMap[playerId].IsAlive = false
-	if lobby.currentPlayerIndex == playerId {
+	if lobby.currentPlayerId == playerId {
 		lobby.setNextPlayerTurn(false)
 		lobby.turnState = Normal
 	}
@@ -269,6 +272,14 @@ func (lobby *Lobby) disconnectPlayer(playerId int) {
 	}
 	player.IsOnline = false
 	close(player.Send)
+
+	// drop players who leave before the game starts
+	if lobby.turnState == NotStarted {
+		delete(lobby.playersMap, playerId)
+		lobby.playersList = slices.DeleteFunc(lobby.playersList, func(p *Player) bool {
+			return p.Id == playerId
+		})
+	}
 }
 
 func (lobby *Lobby) discardCard(player *Player, idx int) {

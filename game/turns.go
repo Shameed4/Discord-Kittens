@@ -50,7 +50,7 @@ func (lobby *Lobby) setNextPlayerTurn(attack bool) {
 	}
 	pos := 0
 	for i, p := range lobby.playersList {
-		if p.Id == lobby.currentPlayerIndex {
+		if p.Id == lobby.currentPlayerId {
 			pos = i
 			break
 		}
@@ -66,7 +66,7 @@ func (lobby *Lobby) setNextPlayerTurn(attack bool) {
 }
 
 func (lobby *Lobby) setPlayerTurn(attack bool, playerIdx int) {
-	lobby.currentPlayerIndex = playerIdx
+	lobby.currentPlayerId = playerIdx
 
 	if !attack {
 		lobby.turnsToTake = 1
@@ -123,7 +123,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	player := lobby.playersMap[playerIdx]
 	hand := cardSliceToStrings(player.Hand)
 	var future []string = nil
-	var isPlayerTurn = lobby.currentPlayerIndex == playerIdx
+	var isPlayerTurn = lobby.currentPlayerId == playerIdx
 	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && isPlayerTurn {
 		count := min(3, len(lobby.deck))
 		future = cardSliceToStrings(lobby.deck[:count])
@@ -145,7 +145,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	}
 	res := GameState{
 		PlayerId:    playerIdx,
-		TurnId:      lobby.currentPlayerIndex,
+		TurnId:      lobby.currentPlayerId,
 		DeckSize:    len(lobby.deck),
 		TurnState:   lobby.turnState.String(),
 		Hand:        hand,

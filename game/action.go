@@ -24,7 +24,7 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 	playerId := action.playerId
 	player := lobby.playersMap[playerId]
 	name := player.Name
-	isPlayerTurn := action.playerId == lobby.currentPlayerIndex
+	isPlayerTurn := action.playerId == lobby.currentPlayerId
 	switch action.actionType {
 	case StartGame:
 		if lobby.inProgress() {
@@ -34,6 +34,14 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 			return err
 		}
 		lobby.recordAction(LastAction{Public: "Game started!"})
+
+	case RandomizeOrder:
+		if lobby.turnState != NotStarted {
+			return errors.New("Cannot randomize order - game already started")
+		}
+		rand.Shuffle(len(lobby.playersList), func(i, j int) {
+			lobby.playersList[i], lobby.playersList[j] = lobby.playersList[j], lobby.playersList[i]
+		})
 
 	case Disconnect:
 		// don't disconnect new channel when client reconnects
@@ -138,12 +146,12 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 
 		lobby.turnState = Normal
 		transferredCard := player.Hand[action.useCardIndex]
-		requester := lobby.playersMap[lobby.currentPlayerIndex]
+		requester := lobby.playersMap[lobby.currentPlayerId]
 		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
 		requester.Hand = append(requester.Hand, transferredCard)
 		lobby.recordAction(LastAction{
-			Public:  fmt.Sprintf("%s gave a card to %s", name, lobby.playerName(lobby.currentPlayerIndex)),
-			Private: map[int]string{lobby.currentPlayerIndex: fmt.Sprintf("%s gave you %s", name, transferredCard)},
+			Public:  fmt.Sprintf("%s gave a card to %s", name, lobby.playerName(lobby.currentPlayerId)),
+			Private: map[int]string{lobby.currentPlayerId: fmt.Sprintf("%s gave you %s", name, transferredCard)},
 		})
 
 	case Combo:

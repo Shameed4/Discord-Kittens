@@ -1,61 +1,64 @@
 export const ActionType = {
-  StartGame:       'START_GAME',
-  PlayCard:        'PLAY_CARD',
-  DrawCard:        'DRAW_CARD',
-  PlaceKitten:     'PLACE_KITTEN',
-  Disconnect:      'DISCONNECT',
-  AlterFuture:     'ALTER_FUTURE',
-  GiveFavor:       'GIVE_FAVOR',
-  Combo:           'COMBO',
+  StartGame: 'START_GAME',
+  PlayCard: 'PLAY_CARD',
+  DrawCard: 'DRAW_CARD',
+  PlaceKitten: 'PLACE_KITTEN',
+  Disconnect: 'DISCONNECT',
+  AlterFuture: 'ALTER_FUTURE',
+  GiveFavor: 'GIVE_FAVOR',
+  Combo: 'COMBO',
   TakeFromDiscard: 'TAKE_FROM_DISCARD',
-  PlayNope:        'PLAY_NOPE',
+  PlayNope: 'PLAY_NOPE',
+  RandomizeOrder: 'RANDOMIZE_ORDER',
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 
-interface StartGameAction  { action: 'START_GAME' }
-interface DrawCardAction   { action: 'DRAW_CARD' }
+interface StartGameAction { action: 'START_GAME' }
+interface RandomizeOrderAction { action: 'RANDOMIZE_ORDER' }
+interface DrawCardAction { action: 'DRAW_CARD' }
 interface DisconnectAction { action: 'DISCONNECT' }
 
 interface PlayCardAction {
-  action:          'PLAY_CARD';
-  useCardIndex:    number;
+  action: 'PLAY_CARD';
+  useCardIndex: number;
   targetedPlayer?: number;
 }
 
 interface PlaceKittenAction {
-  action:           'PLACE_KITTEN';
+  action: 'PLACE_KITTEN';
   placeKittenIndex: number;
 }
 
 interface AlterFutureAction {
-  action:           'ALTER_FUTURE';
+  action: 'ALTER_FUTURE';
   alterFutureOrder: number[];
 }
 
 interface GiveFavorAction {
-  action:       'GIVE_FAVOR';
+  action: 'GIVE_FAVOR';
   useCardIndex: number;
 }
 
 interface ComboAction {
-  action:          'COMBO';
-  comboIndices:    number[];
+  action: 'COMBO';
+  comboIndices: number[];
   targetedPlayer?: number;
-  requestedCard?:  string;
+  requestedCard?: string;
 }
 
 interface TakeFromDiscardAction {
-  action:        'TAKE_FROM_DISCARD';
+  action: 'TAKE_FROM_DISCARD';
   requestedCard: string;
 }
 
 interface PlayNopeAction {
-  action:    'PLAY_NOPE';
+  action: 'PLAY_NOPE';
   wantNoped: boolean;
 }
 
 export type ActionRequest =
   | StartGameAction
+  | RandomizeOrderAction
   | DrawCardAction
   | DisconnectAction
   | PlayCardAction

@@ -25,19 +25,27 @@ export default function ActionBar({
 }: ActionBarProps) {
   const [showTargetModal, setShowTargetModal] = useState(false);
 
-  const { hand, players, playerId, turnId, inProgress, turnState } = gameState;
+  const { hand, players, playerId, turnId, turnState } = gameState;
   const isMyTurn = playerId === turnId;
 
   // Not started
-  if (!inProgress) {
+  if (turnState === 'NOT_STARTED') {
     return (
-      <div className="flex justify-center">
+      <div className="flex justify-center gap-2">
         <button
           onClick={() => onAction({ action: 'START_GAME' })}
           className="rounded-full border border-green-400/30 bg-gradient-to-r from-green-600 to-emerald-700 px-4 py-1.5 text-sm font-bold text-white shadow-lg transition-all hover:from-green-500 hover:to-emerald-600"
         >
           Start Game
         </button>
+        {players.length > 1 && (
+          <button
+            onClick={() => onAction({ action: 'RANDOMIZE_ORDER' })}
+            className="rounded-full border border-amber-400/30 bg-gradient-to-r from-amber-600 to-orange-700 px-4 py-1.5 text-sm font-bold text-white shadow-lg transition-all hover:from-amber-500 hover:to-orange-600"
+          >
+            Randomize Order
+          </button>
+        )}
       </div>
     );
   }

@@ -32,14 +32,16 @@ export default function PlayerSeat({
   // Fall back to the emoji if the avatar URL is missing or fails to load.
   const [avatarFailed, setAvatarFailed] = useState(false);
   const showAvatar = Boolean(avatar) && !avatarFailed;
-  const isTurn = id === gameState.turnId && isAlive && gameState.inProgress;
+  const isTurn = gameState.inProgress
+    ? id === gameState.turnId && isAlive
+    : gameState.turnState === 'NOT_STARTED' && playerIndex === 0;
 
-  const avatarPx  = Math.round(44 * seatScale);
-  const emojiFpx  = Math.round(22 * seatScale);
-  const nameFpx   = Math.round(10 * seatScale);
-  const dotPx     = Math.round(10 * seatScale);
-  const badgePx   = Math.round(17 * seatScale);
-  const gapPx     = Math.round(4 * seatScale);
+  const avatarPx = Math.round(44 * seatScale);
+  const emojiFpx = Math.round(22 * seatScale);
+  const nameFpx = Math.round(10 * seatScale);
+  const dotPx = Math.round(10 * seatScale);
+  const badgePx = Math.round(17 * seatScale);
+  const gapPx = Math.round(4 * seatScale);
 
   const emoji = isLocal
     ? LOCAL_EMOJI
@@ -49,16 +51,16 @@ export default function PlayerSeat({
   const boxShadow = isTurn
     ? '0 0 0 3px rgba(245,158,11,0.35), 0 0 16px rgba(245,158,11,0.4)'
     : isLocal
-    ? '0 0 0 2px rgba(129,140,248,0.3)'
-    : 'none';
+      ? '0 0 0 2px rgba(129,140,248,0.3)'
+      : 'none';
 
   const nameColor = !isAlive
     ? '#4b5563'
     : isTurn
-    ? '#f59e0b'
-    : isLocal
-    ? '#818cf8'
-    : '#a78bfa';
+      ? '#f59e0b'
+      : isLocal
+        ? '#818cf8'
+        : '#a78bfa';
 
   const avatarBlock = (
     <div style={{ position: 'relative' }}>
