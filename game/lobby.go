@@ -47,13 +47,13 @@ func (t TurnState) String() string {
 }
 
 type Player struct {
-	Hand     []Card
-	Id       int
-	UserId   string // stable cross-session identity (e.g. Discord user id); used to reconnect returning players
-	Name     string
-	Avatar   string // avatar image URL; empty when the player has none (client falls back to an emoji)
-	IsAlive  bool
-	IsOnline bool
+	Hand          []Card
+	Id            int
+	DiscordUserId string // stable cross-session identity used to reconnect returning players
+	Name          string
+	Avatar        string // avatar image URL; empty when the player has none (client falls back to an emoji)
+	IsAlive       bool
+	IsOnline      bool
 
 	Send chan GameState
 }
@@ -166,7 +166,9 @@ type PendingNopeableAction struct {
 
 type Lobby struct {
 	deck               []Card
-	players            []*Player
+	playersMap         map[int]*Player
+	playersList        []*Player
+	nextPlayerId       int
 	currentPlayerIndex int
 	turnState          TurnState
 	livingPlayers      int
@@ -188,20 +190,17 @@ type Lobby struct {
 
 func NewLobby() *Lobby {
 	return &Lobby{
-		players:     make([]*Player, 0),
-		ActionQueue: make(chan PlayerAction),
-		JoinQueue:   make(chan JoinRequest),
-		turnState:   NotStarted,
+		playersList:  make([]*Player, 0),
+		playersMap:   make(map[int]*Player),
+		ActionQueue:  make(chan PlayerAction),
+		JoinQueue:    make(chan JoinRequest),
+		turnState:    NotStarted,
+		nextPlayerId: 0,
 	}
 }
 
 func (lobby *Lobby) startGame() error {
-	numPlayers := 0
-	for _, player := range lobby.players {
-		if player.IsOnline {
-			numPlayers += 1
-		}
-	}
+	numPlayers := len(lobby.playersList)
 	if numPlayers < 2 {
 		return errors.New("Cannot start lobby - Not enough players")
 	} else if numPlayers > 10 {
@@ -225,7 +224,7 @@ func (lobby *Lobby) startGame() error {
 	lobby.shuffleDeck()
 
 	// Deal 1 diffuse + 4 starting cards to each player
-	for _, p := range lobby.players {
+	for _, p := range lobby.playersList {
 		if !p.IsOnline {
 			continue
 		}
@@ -253,7 +252,7 @@ func (lobby *Lobby) startGame() error {
 
 func (lobby *Lobby) eliminatePlayer(playerId int) {
 	lobby.livingPlayers--
-	lobby.players[playerId].IsAlive = false
+	lobby.playersMap[playerId].IsAlive = false
 	if lobby.currentPlayerIndex == playerId {
 		lobby.setNextPlayerTurn(false)
 		lobby.turnState = Normal
@@ -264,7 +263,7 @@ func (lobby *Lobby) eliminatePlayer(playerId int) {
 }
 
 func (lobby *Lobby) disconnectPlayer(playerId int) {
-	player := lobby.players[playerId]
+	player := lobby.playersMap[playerId]
 	if !player.IsOnline {
 		return
 	}
@@ -285,8 +284,8 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 	// Reconnect a returning player by their stable id. This works even mid-game
 	// (and after they quit) since the player already has a seat at the table.
 	if joinReq.UserId != "" {
-		for _, p := range lobby.players {
-			if p.UserId != joinReq.UserId {
+		for _, p := range lobby.playersList {
+			if p.DiscordUserId != joinReq.UserId {
 				continue
 			}
 			// Drop a still-live duplicate connection so its writer goroutine
@@ -313,8 +312,8 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 
 	// player without an id who joins can replace a disconnected id-less player
 	if joinReq.UserId == "" && lobby.inProgress() {
-		for _, p := range lobby.players {
-			if p.UserId != "" || p.IsOnline {
+		for _, p := range lobby.playersList {
+			if p.DiscordUserId != "" || p.IsOnline {
 				continue
 			}
 			p.IsOnline = true
@@ -343,26 +342,28 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 		return
 	}
 
-	newId := len(lobby.players)
+	newId := lobby.nextPlayerId
+	lobby.nextPlayerId += 1
 	name := joinReq.Name
 	if name == "" {
 		name = fmt.Sprintf("Player %d", newId)
 	}
 	newPlayer := &Player{
-		Id:       newId,
-		UserId:   joinReq.UserId,
-		Name:     name,
-		Avatar:   joinReq.Avatar,
-		Send:     joinReq.Send,
-		IsOnline: true,
-		IsAlive:  true,
-		Hand:     make([]Card, 0),
+		Id:            newId,
+		DiscordUserId: joinReq.UserId,
+		Name:          name,
+		Avatar:        joinReq.Avatar,
+		Send:          joinReq.Send,
+		IsOnline:      true,
+		IsAlive:       true,
+		Hand:          make([]Card, 0),
 	}
 	joinReq.Result <- JoinResponse{
 		success:  true,
 		playerId: newId,
 	}
-	lobby.players = append(lobby.players, newPlayer)
+	lobby.playersList = append(lobby.playersList, newPlayer)
+	lobby.playersMap[newPlayer.Id] = newPlayer
 	lobby.broadcastGameState()
 }
 

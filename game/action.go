@@ -16,16 +16,13 @@ const nopeDelay = 5000 * time.Millisecond
 // playerName returns the display name for a player id, falling back to a
 // generic label if the id is somehow out of range.
 func (lobby *Lobby) playerName(id int) string {
-	if id < 0 || id >= len(lobby.players) {
-		return fmt.Sprintf("Player %d", id)
-	}
-	return lobby.players[id].Name
+	return lobby.playersMap[id].Name
 }
 
 // handles action received by player and executes it if not nopeable
 func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 	playerId := action.playerId
-	player := lobby.players[playerId]
+	player := lobby.playersMap[playerId]
 	name := player.Name
 	isPlayerTurn := action.playerId == lobby.currentPlayerIndex
 	switch action.actionType {
@@ -86,7 +83,7 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 				return err
 			}
 		}
-		if playedCard == Favor && len(lobby.players[action.targetedPlayer].Hand) == 0 {
+		if playedCard == Favor && len(lobby.playersMap[action.targetedPlayer].Hand) == 0 {
 			return errors.New("Cannot ask a favor from a player without cards!")
 		}
 
@@ -141,7 +138,7 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 
 		lobby.turnState = Normal
 		transferredCard := player.Hand[action.useCardIndex]
-		requester := lobby.players[lobby.currentPlayerIndex]
+		requester := lobby.playersMap[lobby.currentPlayerIndex]
 		player.Hand = slices.Delete(player.Hand, action.useCardIndex, action.useCardIndex+1)
 		requester.Hand = append(requester.Hand, transferredCard)
 		lobby.recordAction(LastAction{
@@ -168,7 +165,7 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 			if err := lobby.assertPlayerExistsAndAlive(action.targetedPlayer); err != nil {
 				return err
 			}
-			targetedPlayer := lobby.players[action.targetedPlayer]
+			targetedPlayer := lobby.playersMap[action.targetedPlayer]
 			if len(targetedPlayer.Hand) == 0 {
 				return errors.New("Cannot target a player without cards in their hand")
 			}
@@ -293,7 +290,7 @@ func (lobby *Lobby) handleNopeTimerComplete() {
 func (lobby *Lobby) confirmPlayerAction() {
 	action := lobby.pendingAction
 	playerId := action.playerId
-	player := lobby.players[playerId]
+	player := lobby.playersMap[playerId]
 	name := lobby.playerName(playerId)
 	switch action.actionType {
 	case PlayCard:
@@ -325,7 +322,7 @@ func (lobby *Lobby) confirmPlayerAction() {
 			drawn := lobby.removeBottomCard()
 			lobby.resolveDrawnCard(player, drawn, "drew from the bottom")
 		case Favor:
-			targetedPlayer := lobby.players[action.targetedPlayer]
+			targetedPlayer := lobby.playersMap[action.targetedPlayer]
 			if len(targetedPlayer.Hand) > 0 {
 				lobby.targetedPlayer = action.targetedPlayer
 				lobby.turnState = AwaitingFavor
@@ -341,7 +338,7 @@ func (lobby *Lobby) confirmPlayerAction() {
 		lobby.turnState = Normal
 		comboSize := action.comboSize
 		deleteIndex := -1
-		targetedPlayer := lobby.players[action.targetedPlayer]
+		targetedPlayer := lobby.playersMap[action.targetedPlayer]
 		if len(targetedPlayer.Hand) > 0 {
 			switch comboSize {
 			case 2:

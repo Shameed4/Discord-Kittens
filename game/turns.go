@@ -48,11 +48,18 @@ func (lobby *Lobby) setNextPlayerTurn(attack bool) {
 	if lobby.livingPlayers == 0 {
 		return // Safety valve to prevent infinite loops
 	}
-	idx := lobby.currentPlayerIndex
-	for {
-		idx = (idx + 1) % len(lobby.players)
-		if lobby.players[idx].IsAlive {
-			lobby.setPlayerTurn(attack, idx)
+	pos := 0
+	for i, p := range lobby.playersList {
+		if p.Id == lobby.currentPlayerIndex {
+			pos = i
+			break
+		}
+	}
+	n := len(lobby.playersList)
+	for offset := 1; offset <= n; offset++ {
+		next := lobby.playersList[(pos+offset)%n]
+		if next.IsAlive {
+			lobby.setPlayerTurn(attack, next.Id)
 			return
 		}
 	}
@@ -88,9 +95,10 @@ func (lobby *Lobby) assertTurnAndState(validStates []TurnState, isPlayerTurn boo
 }
 
 func (lobby *Lobby) assertPlayerExistsAndAlive(playerId int) error {
-	if playerId < 0 || playerId >= len(lobby.players) {
+	player, ok := lobby.playersMap[playerId]
+	if !ok {
 		return errors.New("Player does not exist")
-	} else if !lobby.players[playerId].IsAlive {
+	} else if !player.IsAlive {
 		return errors.New("Player must be alive")
 	}
 	return nil
@@ -112,7 +120,7 @@ func (lobby *Lobby) lastActionFor(playerIdx int) string {
 }
 
 func (lobby *Lobby) getGameState(playerIdx int) GameState {
-	player := lobby.players[playerIdx]
+	player := lobby.playersMap[playerIdx]
 	hand := cardSliceToStrings(player.Hand)
 	var future []string = nil
 	var isPlayerTurn = lobby.currentPlayerIndex == playerIdx
@@ -155,7 +163,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	if lobby.turnState == AcceptingNopes {
 		res.NopeDeadline = lobby.nopeDeadline.UnixMilli()
 	}
-	for _, player := range lobby.players {
+	for _, player := range lobby.playersList {
 		res.Players = append(res.Players, PlayerGameState{
 			Id:        player.Id,
 			Name:      player.Name,
@@ -171,7 +179,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 // tries sending to online player, without blocking. if channel is full
 // (meaning client hasn't received many messages) then it must be disconnected.
 func (lobby *Lobby) sendTo(playerIdx int, state GameState) {
-	player := lobby.players[playerIdx]
+	player := lobby.playersMap[playerIdx]
 	if !player.IsOnline {
 		return
 	}
@@ -183,7 +191,7 @@ func (lobby *Lobby) sendTo(playerIdx int, state GameState) {
 }
 
 func (lobby *Lobby) sendError(playerIdx int, err string) {
-	player := lobby.players[playerIdx]
+	player := lobby.playersMap[playerIdx]
 	if !player.IsOnline {
 		return
 	}
@@ -193,9 +201,9 @@ func (lobby *Lobby) sendError(playerIdx int, err string) {
 }
 
 func (lobby *Lobby) broadcastGameState() {
-	for playerIdx, player := range lobby.players {
+	for _, player := range lobby.playersMap {
 		if player.IsOnline {
-			lobby.sendTo(playerIdx, lobby.getGameState(playerIdx))
+			lobby.sendTo(player.Id, lobby.getGameState(player.Id))
 		}
 	}
 }
