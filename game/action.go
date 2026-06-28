@@ -13,8 +13,9 @@ import (
 
 const nopeDelay = 5000 * time.Millisecond
 
-// playerName returns the display name for a player id, falling back to a
-// generic label if the id is somehow out of range.
+// playerName returns the display name for a player id. The id must belong to a
+// currently seated player; receivePlayerAction guards stale ids before any
+// playerName call is reached.
 func (lobby *Lobby) playerName(id int) string {
 	return lobby.playersMap[id].Name
 }
@@ -31,7 +32,13 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 	}
 
 	playerId := action.playerId
-	player := lobby.playersMap[playerId]
+	player, ok := lobby.playersMap[playerId]
+	if !ok {
+		// Stale id belonging to neither a spectator nor a seated player — e.g. a
+		// dropped spectator whose socket closes after removeSpectator already ran,
+		// emitting a late Disconnect. Nothing to act on.
+		return nil
+	}
 	name := player.Name
 	isPlayerTurn := action.playerId == lobby.currentPlayerId
 	switch action.actionType {
