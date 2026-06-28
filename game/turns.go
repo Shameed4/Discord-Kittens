@@ -7,6 +7,7 @@ import (
 )
 
 const maxLogEntries = 200
+const spectatorPerspective = -1 // sentinel id used for getting game state for spectators
 
 // recordAction sets the most-recent action (for the banner) and appends it to
 // the append-only game log, trimming the log to the last maxLogEntries entries.
@@ -119,44 +120,26 @@ func (lobby *Lobby) lastActionFor(playerIdx int) string {
 	return resolveAction(lobby.lastAction, playerIdx)
 }
 
-func (lobby *Lobby) getGameState(playerIdx int) GameState {
-	player := lobby.playersMap[playerIdx]
-	hand := cardSliceToStrings(player.Hand)
-	var future []string = nil
-	var isPlayerTurn = lobby.currentPlayerId == playerIdx
-	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && isPlayerTurn {
-		count := min(3, len(lobby.deck))
-		future = cardSliceToStrings(lobby.deck[:count])
-	}
-	var discardOptions []string
-	if lobby.turnState == AwaitingDiscardTake && isPlayerTurn {
-		discardMap := make(map[Card]bool)
-		discardOptions = []string{}
-		for _, c := range lobby.discardPile {
-			if !discardMap[c] {
-				discardMap[c] = true
-				discardOptions = append(discardOptions, c.String())
-			}
-		}
-	}
+// baseStateFor fills the fields shared by every snapshot, resolved from the
+// given perspective id (a real player id, or spectatorPerspective). The
+// per-player private bits — hand, future, discard options — are layered on top
+// by getGameState; getSpectatorState leaves them empty.
+func (lobby *Lobby) baseStateFor(perspective int) GameState {
 	log := make([]string, len(lobby.actionLog))
 	for i, a := range lobby.actionLog {
-		log[i] = resolveAction(a, playerIdx)
+		log[i] = resolveAction(a, perspective)
 	}
 	res := GameState{
-		PlayerId:    playerIdx,
+		PlayerId:    perspective,
 		TurnId:      lobby.currentPlayerId,
 		DeckSize:    len(lobby.deck),
 		TurnState:   lobby.turnState.String(),
-		Hand:        hand,
 		InProgress:  lobby.inProgress(),
 		UnderAttack: lobby.underAttack,
 		TurnsToTake: lobby.turnsToTake,
 
-		Future:         future,
 		TargetedPlayer: lobby.targetedPlayer,
-		DiscardOptions: discardOptions,
-		LastAction:     lobby.lastActionFor(playerIdx),
+		LastAction:     lobby.lastActionFor(perspective),
 		IsNoped:        lobby.pendingAction != nil && lobby.pendingAction.isNoped,
 		Log:            log,
 	}
@@ -174,6 +157,55 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 		})
 	}
 	return res
+}
+
+func (lobby *Lobby) getGameState(playerIdx int) GameState {
+	res := lobby.baseStateFor(playerIdx)
+	player := lobby.playersMap[playerIdx]
+	res.Hand = cardSliceToStrings(player.Hand)
+
+	isPlayerTurn := lobby.currentPlayerId == playerIdx
+	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && isPlayerTurn {
+		count := min(3, len(lobby.deck))
+		res.Future = cardSliceToStrings(lobby.deck[:count])
+	}
+	if lobby.turnState == AwaitingDiscardTake && isPlayerTurn {
+		discardMap := make(map[Card]bool)
+		discardOptions := []string{}
+		for _, c := range lobby.discardPile {
+			if !discardMap[c] {
+				discardMap[c] = true
+				discardOptions = append(discardOptions, c.String())
+			}
+		}
+		res.DiscardOptions = discardOptions
+	}
+	return res
+}
+
+// getSpectatorState builds the fully public snapshot sent to every spectator:
+// the shared base resolved from the spectator perspective, with no hand,
+// future, or discard options.
+func (lobby *Lobby) getSpectatorState() GameState {
+	res := lobby.baseStateFor(spectatorPerspective)
+	res.Hand = []string{}
+	res.IsSpectator = true
+	return res
+}
+
+// removeSpectator closes a spectator's channel (shutting down its writer
+// goroutine) and drops it from the lobby. The optional conn guard avoids
+// closing a channel that has already been replaced. No-op if already gone.
+func (lobby *Lobby) removeSpectator(id int, conn chan GameState) {
+	spec, ok := lobby.spectators[id]
+	if !ok {
+		return
+	}
+	if conn != nil && spec.Send != conn {
+		return
+	}
+	close(spec.Send)
+	delete(lobby.spectators, id)
 }
 
 // tries sending to online player, without blocking. if channel is full
@@ -204,6 +236,17 @@ func (lobby *Lobby) broadcastGameState() {
 	for _, player := range lobby.playersMap {
 		if player.IsOnline {
 			lobby.sendTo(player.Id, lobby.getGameState(player.Id))
+		}
+	}
+	if len(lobby.spectators) > 0 {
+		state := lobby.getSpectatorState()
+		for id, spec := range lobby.spectators {
+			select {
+			case spec.Send <- state:
+			default:
+				// a wedged spectator that can't keep up is dropped
+				lobby.removeSpectator(id, nil)
+			}
 		}
 	}
 }

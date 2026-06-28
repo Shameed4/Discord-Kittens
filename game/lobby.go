@@ -77,6 +77,7 @@ type GameState struct {
 	InProgress  bool              `json:"inProgress"`
 	UnderAttack bool              `json:"underAttack"`
 	TurnsToTake int               `json:"turnsToTake"`
+	IsSpectator bool              `json:"isSpectator"` // true for watch-only clients that joined mid-game
 
 	Future         []string `json:"future,omitempty"`         // for see/alter the future
 	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
@@ -104,9 +105,17 @@ type JoinRequest struct {
 }
 
 type JoinResponse struct {
-	success  bool
-	error    string
-	playerId int
+	success     bool
+	error       string
+	playerId    int
+	isSpectator bool // true when the join was accepted as a watch-only spectator
+}
+
+// Spectator is a watch-only client that joined after the game began. Spectators
+// hold no seat at the table and only ever receive the fully public game state.
+type Spectator struct {
+	Id   int
+	Send chan GameState
 }
 
 type ActionType int
@@ -152,6 +161,7 @@ type PlayerAction struct {
 	requestedCard    Card           // card requested from 3 combo
 	wantNoped        bool           // when placing a nope, true means player wants to nope, false means yup
 	conn             chan GameState // only used for disconnect actions to ensure right channel is closed
+	isSpectator      bool           // when true, playerId is a spectator id (only Disconnect is honored)
 }
 
 type PendingNopeableAction struct {
@@ -170,6 +180,8 @@ type Lobby struct {
 	deck            []Card
 	playersMap      map[int]*Player
 	playersList     []*Player
+	spectators      map[int]*Spectator
+	nextSpectatorId int
 	nextPlayerId    int
 	currentPlayerId int
 	turnState       TurnState
@@ -194,6 +206,7 @@ func NewLobby() *Lobby {
 	return &Lobby{
 		playersList:  make([]*Player, 0),
 		playersMap:   make(map[int]*Player),
+		spectators:   make(map[int]*Spectator),
 		ActionQueue:  make(chan PlayerAction),
 		JoinQueue:    make(chan JoinRequest),
 		turnState:    NotStarted,
@@ -344,12 +357,17 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 		}
 	}
 
-	// Only returning players may join once the game has started.
-	if lobby.inProgress() {
+	// joining an already started lobby turns player to spectator
+	if lobby.turnState != NotStarted {
+		specId := lobby.nextSpectatorId
+		lobby.nextSpectatorId++
+		lobby.spectators[specId] = &Spectator{Id: specId, Send: joinReq.Send}
 		joinReq.Result <- JoinResponse{
-			success: false,
-			error:   "Game in progress",
+			success:     true,
+			playerId:    specId,
+			isSpectator: true,
 		}
+		lobby.broadcastGameState()
 		return
 	}
 

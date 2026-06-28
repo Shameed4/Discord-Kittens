@@ -11,6 +11,7 @@ export interface GameState {
   underAttack:    boolean;
   turnsToTake:    number;
   targetedPlayer: number;
+  isSpectator:    boolean; // watch-only client that joined mid-game (no seat, public info only)
 
   future?:         CardType[];
   discardOptions?: CardType[];

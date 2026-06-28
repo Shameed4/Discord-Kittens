@@ -148,6 +148,7 @@ export default function GamePage() {
 
   const { playerId, turnId, turnState, hand, players, deckSize, inProgress } =
     gameState;
+  const isSpectator = gameState.isSpectator;
   const isMyTurn = playerId === turnId;
   const amFavorTarget =
     turnState === 'AWAITING_FAVOR' && gameState.targetedPlayer === playerId;
@@ -185,9 +186,8 @@ export default function GamePage() {
           aria-hidden
           className="pointer-events-none fixed inset-0 z-40 animate-pulse"
           style={{
-            background: `radial-gradient(ellipse at center, transparent 45%, ${
-              isNoped ? 'rgba(239,68,68,0.30)' : 'rgba(245,158,11,0.24)'
-            } 100%)`,
+            background: `radial-gradient(ellipse at center, transparent 45%, ${isNoped ? 'rgba(239,68,68,0.30)' : 'rgba(245,158,11,0.24)'
+              } 100%)`,
           }}
         />
       )}
@@ -441,36 +441,44 @@ export default function GamePage() {
         hints the action bar is showing — cards never shift around. Cards wrap to a
         second row when the hand is large rather than getting clipped.
       */}
-        <div className="flex w-full max-w-4xl items-center justify-center gap-3 px-2">
-          <div className="flex min-w-0 flex-[4] flex-wrap content-center justify-center gap-1.5 pb-1">
-            {hand.map((card, i) => (
-              <HandCard
-                key={i}
-                card={card}
-                index={i}
-                isSelected={selectedIndices.includes(i)}
-                isPlayable={handIsPlayable}
-                onClick={handleCardClick}
+        {isSpectator ? (
+          <div className="flex w-full max-w-4xl items-center justify-center px-2">
+            <div className="rounded-full border border-purple-700/60 bg-purple-950/60 px-4 py-1.5 text-xs font-bold tracking-widest text-purple-300 uppercase">
+              👁 Spectating — watching only
+            </div>
+          </div>
+        ) : (
+          <div className="flex w-full max-w-4xl items-center justify-center gap-3 px-2">
+            <div className="flex min-w-0 flex-[4] flex-wrap content-center justify-center gap-1.5 pb-1">
+              {hand.map((card, i) => (
+                <HandCard
+                  key={i}
+                  card={card}
+                  index={i}
+                  isSelected={selectedIndices.includes(i)}
+                  isPlayable={handIsPlayable}
+                  onClick={handleCardClick}
+                />
+              ))}
+              {hand.length === 0 && inProgress && (
+                <span className="self-center text-xs font-semibold text-purple-800">
+                  No cards in hand
+                </span>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-1 justify-center">
+              <ActionBar
+                gameState={gameState}
+                selectedIndices={selectedIndices}
+                nopeRemaining={nopeRemaining}
+                onAction={(action) => {
+                  sendAction(action);
+                  setSelectedIndices([]);
+                }}
               />
-            ))}
-            {hand.length === 0 && inProgress && (
-              <span className="self-center text-xs font-semibold text-purple-800">
-                No cards in hand
-              </span>
-            )}
+            </div>
           </div>
-          <div className="flex min-w-0 flex-1 justify-center">
-            <ActionBar
-              gameState={gameState}
-              selectedIndices={selectedIndices}
-              nopeRemaining={nopeRemaining}
-              onAction={(action) => {
-                sendAction(action);
-                setSelectedIndices([]);
-              }}
-            />
-          </div>
-        </div>
+        )}
 
         {/* Game over overlay */}
         {turnState === 'GAME_OVER' && (
