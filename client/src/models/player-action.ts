@@ -10,11 +10,13 @@ export const ActionType = {
   TakeFromDiscard: 'TAKE_FROM_DISCARD',
   PlayNope: 'PLAY_NOPE',
   RandomizeOrder: 'RANDOMIZE_ORDER',
+  RestartLobby: 'RESTART_LOBBY',
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 
 interface StartGameAction { action: 'START_GAME' }
 interface RandomizeOrderAction { action: 'RANDOMIZE_ORDER' }
+interface RestartLobbyAction { action: 'RESTART_LOBBY' }
 interface DrawCardAction { action: 'DRAW_CARD' }
 interface DisconnectAction { action: 'DISCONNECT' }
 
@@ -59,6 +61,7 @@ interface PlayNopeAction {
 export type ActionRequest =
   | StartGameAction
   | RandomizeOrderAction
+  | RestartLobbyAction
   | DrawCardAction
   | DisconnectAction
   | PlayCardAction
