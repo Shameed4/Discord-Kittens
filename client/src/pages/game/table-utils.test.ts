@@ -36,6 +36,25 @@ describe('getSeatPositions', () => {
     expect(pos[0].y).toBeCloseTo(0, 1);
   });
 
+  it('spectator (localPlayerIndex < 0) spreads players over the 300° arc, endpoints just above the bottom', () => {
+    // 4 players at 210°, 310°, 410°, 510° — first/last sit symmetrically near
+    // the bottom corners (y≈93.3) but never at the bottom center.
+    const pos = getSeatPositions(4, -1);
+    expect(pos[0].x).toBeCloseTo(25, 1);
+    expect(pos[0].y).toBeCloseTo(93.3, 1);
+    expect(pos[3].x).toBeCloseTo(75, 1);
+    expect(pos[3].y).toBeCloseTo(93.3, 1);
+  });
+
+  it('spectator leaves the bottom (6 o\'clock) seat clear for any player count', () => {
+    // Both even and odd counts must keep the 180° (bottom-center) wedge empty so
+    // no seat overlaps the "Spectating" banner below the table.
+    for (let n = 1; n <= 10; n++) {
+      const pos = getSeatPositions(n, -1);
+      expect(pos.some((p) => Math.abs(p.x - 50) < 1 && p.y > 99)).toBe(false);
+    }
+  });
+
   it('handles 10 players — all positions are within 0–100%', () => {
     const pos = getSeatPositions(10, 0);
     expect(pos).toHaveLength(10);

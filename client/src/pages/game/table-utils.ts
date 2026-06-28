@@ -23,14 +23,33 @@ function degToPos(angleDeg: number): SeatPosition {
  * players array. The local player is always at 6 o'clock (bottom).
  * Opponents are evenly distributed over the remaining 300° arc.
  *
+ * A spectator has no seat of their own (localPlayerIndex < 0): all players are
+ * spread evenly over the full 360° starting from 12 o'clock, leaving the bottom
+ * of the table clear so seats don't overlap the "Spectating" banner below it.
+ *
  * @param playerCount  total players (2–10)
- * @param localPlayerIndex  index of the local player in the players array
+ * @param localPlayerIndex  index of the local player, or < 0 when spectating
  */
 export function getSeatPositions(
   playerCount: number,
   localPlayerIndex: number,
 ): SeatPosition[] {
   const positions: SeatPosition[] = new Array(playerCount);
+
+  // Spectator view: no local seat to pin at the bottom. Spread everyone over the
+  // same 300° arc opponents use (centered on 12 o'clock), which keeps the 60° at
+  // the bottom clear for any player count so no seat overlaps the "Spectating"
+  // banner below the table.
+  if (localPlayerIndex < 0) {
+    for (let i = 0; i < playerCount; i++) {
+      const angleDeg =
+        playerCount === 1
+          ? 0 // lone player → 12 o'clock
+          : OPPONENT_START_DEG + (i * OPPONENT_ARC_DEG) / (playerCount - 1);
+      positions[i] = degToPos(angleDeg);
+    }
+    return positions;
+  }
 
   positions[localPlayerIndex] = degToPos(180);
 

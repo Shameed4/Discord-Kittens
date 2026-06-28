@@ -159,11 +159,10 @@ export default function GamePage() {
 
   const turnPlayerName =
     players.find((p) => p.id === turnId)?.name ?? `Player ${turnId}`;
+  // Spectators have no seat of their own (playerId -1 → index -1); the seat
+  // layout spreads everyone over the top arc, leaving the bottom clear.
   const localPlayerIndex = players.findIndex((p) => p.id === playerId);
-  const seatPositions = getSeatPositions(
-    players.length,
-    localPlayerIndex < 0 ? 0 : localPlayerIndex,
-  );
+  const seatPositions = getSeatPositions(players.length, localPlayerIndex);
   // Scale seats down at high player counts so they fit the perimeter
   const seatScale = players.length <= 4 ? 1 : players.length <= 7 ? 0.85 : 0.7;
 
@@ -486,8 +485,11 @@ export default function GamePage() {
         )}
       </div>
 
-      {/* Game log sidebar */}
-      <GameLog log={gameState.log ?? []} />
+      {/* Game log sidebar — only once the game is underway (or over); it has no
+          content pre-game and would just crowd the lobby/Randomize Order UI. */}
+      {(inProgress || turnState === 'GAME_OVER') && (
+        <GameLog log={gameState.log ?? []} />
+      )}
 
       {/* Connection status badge */}
       {connectionStatus !== ConnectionStatus.Connected && (
