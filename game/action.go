@@ -52,6 +52,12 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 			lobby.playersList[i], lobby.playersList[j] = lobby.playersList[j], lobby.playersList[i]
 		})
 
+	case RestartLobby:
+		if lobby.turnState == NotStarted {
+			return errors.New("Cannot restart - lobby has not started")
+		}
+		lobby.resetToLobby(playerId)
+
 	case Disconnect:
 		// don't disconnect new channel when client reconnects
 		if action.conn != nil && player.Send != action.conn {

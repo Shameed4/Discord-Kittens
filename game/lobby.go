@@ -139,6 +139,7 @@ const (
 	TakeFromDiscard
 	PlayNope
 	RandomizeOrder
+	RestartLobby
 )
 
 var actionTypeNames = map[string]ActionType{
@@ -153,6 +154,7 @@ var actionTypeNames = map[string]ActionType{
 	"TAKE_FROM_DISCARD": TakeFromDiscard,
 	"PLAY_NOPE":         PlayNope,
 	"RANDOMIZE_ORDER":   RandomizeOrder,
+	"RESTART_LOBBY":     RestartLobby,
 }
 
 type PlayerAction struct {
@@ -428,4 +430,69 @@ func (lobby *Lobby) run() {
 			lobby.handleNopeTimerComplete()
 		}
 	}
+}
+
+// resetToLobby returns the lobby to the pre-game NOT_STARTED state: it clears
+// all game state, drops players who went offline mid-game, promotes every
+// spectator into a seated player in place (same id + socket), and records who
+// triggered the restart so the banner can show it.
+func (lobby *Lobby) resetToLobby(restarterId int) {
+	if lobby.nopeTimer != nil {
+		lobby.nopeTimer.Stop()
+		lobby.nopeTimer = nil
+	}
+	lobby.pendingAction = nil
+	lobby.deck = nil
+	lobby.discardPile = nil
+	lobby.turnsToTake = 0
+	lobby.underAttack = false
+	lobby.targetedPlayer = 0
+	lobby.livingPlayers = 0
+
+	name := lobby.playerName(restarterId)
+
+	// Drop players who left during the game so the NOT_STARTED invariant
+	// ("every seated player is online") holds again.
+	lobby.playersList = slices.DeleteFunc(lobby.playersList, func(p *Player) bool {
+		if !p.IsOnline {
+			delete(lobby.playersMap, p.Id)
+			return true
+		}
+		return false
+	})
+
+	// Promote spectators to players in place: same id and Send channel, so their
+	// existing socket (already in the unified read loop) starts driving actions.
+	for id, spec := range lobby.spectators {
+		specName := spec.Name
+		if specName == "" {
+			specName = fmt.Sprintf("Player %d", id)
+		}
+		player := &Player{
+			Id:            id,
+			DiscordUserId: spec.DiscordUserId,
+			Name:          specName,
+			Avatar:        spec.Avatar,
+			Send:          spec.Send,
+			IsOnline:      true,
+			IsAlive:       true,
+			Hand:          make([]Card, 0),
+		}
+		lobby.playersList = append(lobby.playersList, player)
+		lobby.playersMap[id] = player
+		delete(lobby.spectators, id)
+	}
+
+	// Deal everyone back out fresh.
+	for _, p := range lobby.playersList {
+		p.Hand = make([]Card, 0)
+		p.IsAlive = true
+	}
+
+	lobby.turnState = NotStarted
+	if len(lobby.playersList) > 0 {
+		lobby.currentPlayerId = lobby.playersList[0].Id
+	}
+	lobby.actionLog = nil
+	lobby.recordAction(LastAction{Public: fmt.Sprintf("%s restarted the lobby", name)})
 }
