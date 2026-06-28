@@ -115,9 +115,14 @@ type JoinResponse struct {
 
 // Spectator is a watch-only client that joined after the game began. Spectators
 // hold no seat at the table and only ever receive the fully public game state.
+// Name/DiscordUserId/Avatar are retained so a spectator can be promoted to a
+// real Player on lobby restart.
 type Spectator struct {
-	Id   int
-	Send chan GameState
+	Id            int
+	Name          string
+	DiscordUserId string
+	Avatar        string
+	Send          chan GameState
 }
 
 type ActionType int
@@ -183,8 +188,7 @@ type Lobby struct {
 	playersMap      map[int]*Player
 	playersList     []*Player
 	spectators      map[int]*Spectator
-	nextSpectatorId int
-	nextPlayerId    int
+	nextId          int // single counter so player and spectator ids never collide
 	currentPlayerId int
 	turnState       TurnState
 	livingPlayers   int
@@ -206,13 +210,13 @@ type Lobby struct {
 
 func NewLobby() *Lobby {
 	return &Lobby{
-		playersList:  make([]*Player, 0),
-		playersMap:   make(map[int]*Player),
-		spectators:   make(map[int]*Spectator),
-		ActionQueue:  make(chan PlayerAction),
-		JoinQueue:    make(chan JoinRequest),
-		turnState:    NotStarted,
-		nextPlayerId: 0,
+		playersList: make([]*Player, 0),
+		playersMap:  make(map[int]*Player),
+		spectators:  make(map[int]*Spectator),
+		ActionQueue: make(chan PlayerAction),
+		JoinQueue:   make(chan JoinRequest),
+		turnState:   NotStarted,
+		nextId:      0,
 	}
 }
 
@@ -361,9 +365,15 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 
 	// joining an already started lobby turns player to spectator
 	if lobby.turnState != NotStarted {
-		specId := lobby.nextSpectatorId
-		lobby.nextSpectatorId++
-		lobby.spectators[specId] = &Spectator{Id: specId, Send: joinReq.Send}
+		specId := lobby.nextId
+		lobby.nextId++
+		lobby.spectators[specId] = &Spectator{
+			Id:            specId,
+			Name:          joinReq.Name,
+			DiscordUserId: joinReq.UserId,
+			Avatar:        joinReq.Avatar,
+			Send:          joinReq.Send,
+		}
 		joinReq.Result <- JoinResponse{
 			success:     true,
 			playerId:    specId,
@@ -373,8 +383,8 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 		return
 	}
 
-	newId := lobby.nextPlayerId
-	lobby.nextPlayerId += 1
+	newId := lobby.nextId
+	lobby.nextId++
 	name := joinReq.Name
 	if name == "" {
 		name = fmt.Sprintf("Player %d", newId)
