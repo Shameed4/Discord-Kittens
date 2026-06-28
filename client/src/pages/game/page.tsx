@@ -13,6 +13,7 @@ import KittenPlacer from './components/KittenPlacer';
 import FavorGiver from './components/FavorGiver';
 import DiscardPicker from './components/DiscardPicker';
 import GameOverOverlay from './components/GameOverOverlay';
+import RestartConfirm from './components/RestartConfirm';
 import GameLog from './components/GameLog';
 import NopeBanner from './components/NopeBanner';
 import { getSeatPositions } from './table-utils';
@@ -39,6 +40,7 @@ export default function GamePage() {
     ConnectionStatus.Connecting,
   );
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
 
   // Nope window: countdown ticks only while the server is accepting nopes.
   const isAcceptingNopes = gameState?.turnState === 'ACCEPTING_NOPES';
@@ -481,7 +483,12 @@ export default function GamePage() {
 
         {/* Game over overlay */}
         {turnState === 'GAME_OVER' && (
-          <GameOverOverlay players={players} onLeave={handleLeave} />
+          <GameOverOverlay
+            players={players}
+            isSpectator={isSpectator}
+            onLeave={handleLeave}
+            onRestart={() => setShowRestartConfirm(true)}
+          />
         )}
       </div>
 
@@ -489,6 +496,21 @@ export default function GamePage() {
           content pre-game and would just crowd the lobby/Randomize Order UI. */}
       {(inProgress || turnState === 'GAME_OVER') && (
         <GameLog log={gameState.log ?? []} />
+      )}
+
+      {/* Restart button — seated players only, while a game is underway. The
+          game-over overlay carries its own Restart button. */}
+      {inProgress && !isSpectator && (
+        <button
+          onClick={() => setShowRestartConfirm(true)}
+          className="fixed rounded-full border border-red-800 bg-red-950/80 px-3 py-1 text-xs font-bold text-red-300 transition-colors hover:bg-red-900/80"
+          style={{
+            top: 'calc(0.5rem + var(--sait))',
+            left: 'calc(0.5rem + var(--sail))',
+          }}
+        >
+          ↻ Restart
+        </button>
       )}
 
       {/* Connection status badge */}
@@ -502,6 +524,16 @@ export default function GamePage() {
         >
           {connectionStatus}
         </div>
+      )}
+
+      {showRestartConfirm && (
+        <RestartConfirm
+          onConfirm={() => {
+            sendAction({ action: 'RESTART_LOBBY' });
+            setShowRestartConfirm(false);
+          }}
+          onCancel={() => setShowRestartConfirm(false)}
+        />
       )}
     </div>
   );

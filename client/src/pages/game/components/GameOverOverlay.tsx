@@ -2,11 +2,18 @@ import type { PlayerState } from '../../../models/game-state';
 
 interface GameOverOverlayProps {
   players: PlayerState[];
+  isSpectator: boolean;
   onLeave: () => void;
+  onRestart: () => void;
 }
 
-export default function GameOverOverlay({ players, onLeave }: GameOverOverlayProps) {
-  const winner = players.find(p => p.isAlive);
+export default function GameOverOverlay({
+  players,
+  isSpectator,
+  onLeave,
+  onRestart,
+}: GameOverOverlayProps) {
+  const winner = players.find((p) => p.isAlive);
 
   return (
     <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -14,12 +21,22 @@ export default function GameOverOverlay({ players, onLeave }: GameOverOverlayPro
         <span className="text-4xl font-black text-white">
           {winner ? `${winner.name} wins!` : 'Draw!'}
         </span>
-        <button
-          onClick={onLeave}
-          className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors"
-        >
-          Leave Lobby
-        </button>
+        <div className="flex gap-3">
+          {!isSpectator && (
+            <button
+              onClick={onRestart}
+              className="px-6 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition-colors"
+            >
+              Restart Lobby
+            </button>
+          )}
+          <button
+            onClick={onLeave}
+            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors"
+          >
+            Leave Lobby
+          </button>
+        </div>
       </div>
     </div>
   );
