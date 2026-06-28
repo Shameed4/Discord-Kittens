@@ -8,7 +8,7 @@ export default function RestartConfirm({
   onCancel,
 }: RestartConfirmProps) {
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/70">
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70">
       <div className="flex max-w-xs flex-col items-center gap-4 rounded-2xl border border-purple-700 bg-gray-900 p-6 text-center shadow-2xl">
         <span className="text-lg font-black text-white">Restart Lobby?</span>
         <p className="text-xs leading-snug font-semibold text-purple-300">
