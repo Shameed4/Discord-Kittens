@@ -21,6 +21,8 @@ const (
 	AcceptingNopes
 )
 
+const nonKittenCardsPerPlayer = 7
+
 func (t TurnState) String() string {
 	switch t {
 	case NotStarted:
@@ -245,7 +247,7 @@ func (lobby *Lobby) startGame() error {
 			continue
 		}
 		p.Hand = append(p.Hand, Defuse)
-		for range 4 {
+		for range nonKittenCardsPerPlayer {
 			p.Hand = append(p.Hand, lobby.removeTopCard())
 		}
 	}
