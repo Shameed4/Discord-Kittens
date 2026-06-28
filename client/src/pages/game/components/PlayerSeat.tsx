@@ -1,5 +1,5 @@
 // client/src/pages/game/components/PlayerSeat.tsx
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties } from 'react';
 import type { GameState, PlayerState } from '../../../models/game-state';
 
 // One emoji per player slot, cycled by array index. Local player always gets 😎.
@@ -31,6 +31,22 @@ export default function PlayerSeat({
   const isLocal = id === gameState.playerId;
   // Fall back to the emoji if the avatar URL is missing or fails to load.
   const [avatarFailed, setAvatarFailed] = useState(false);
+
+  // Play a one-shot explosion burst when this player transitions alive → dead.
+  // Detect the transition during render (React's "adjust state on prop change"
+  // pattern), then clear it on a timer once the animation has played.
+  const [exploding, setExploding] = useState(false);
+  const [prevAlive, setPrevAlive] = useState(isAlive);
+  if (prevAlive !== isAlive) {
+    setPrevAlive(isAlive);
+    if (!isAlive) setExploding(true);
+  }
+  useEffect(() => {
+    if (!exploding) return;
+    const t = setTimeout(() => setExploding(false), 900);
+    return () => clearTimeout(t);
+  }, [exploding]);
+
   const showAvatar = Boolean(avatar) && !avatarFailed;
   const isTurn = gameState.inProgress
     ? id === gameState.turnId && isAlive
@@ -64,7 +80,10 @@ export default function PlayerSeat({
 
   const avatarBlock = (
     <div style={{ position: 'relative' }}>
-      <div className={isTurn ? 'animate-turn-flash' : undefined} style={{
+      <div className={[
+        isTurn ? 'animate-turn-flash' : '',
+        exploding ? 'animate-explode-shake' : '',
+      ].filter(Boolean).join(' ') || undefined} style={{
         width: avatarPx,
         height: avatarPx,
         borderRadius: '50%',
@@ -89,6 +108,25 @@ export default function PlayerSeat({
           emoji
         )}
       </div>
+
+      {/* Explosion burst — one-shot when this player just died */}
+      {exploding && (
+        <div
+          className="animate-explode-burst"
+          style={{
+            position: 'absolute',
+            left: avatarPx / 2,
+            top: avatarPx / 2,
+            fontSize: Math.round(avatarPx * 0.9),
+            lineHeight: 1,
+            pointerEvents: 'none',
+            zIndex: 20,
+            filter: 'drop-shadow(0 0 8px rgba(245,158,11,0.8))',
+          }}
+        >
+          💥
+        </div>
+      )}
 
       {/* Online indicator */}
       <div
