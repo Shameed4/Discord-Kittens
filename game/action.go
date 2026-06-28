@@ -21,7 +21,9 @@ func (lobby *Lobby) playerName(id int) string {
 
 // handles action received by player and executes it if not nopeable
 func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
-	if action.isSpectator {
+	// Spectators have ids in the same space as players but are not seated;
+	// they may only disconnect. Anything else from a spectator is ignored.
+	if _, isSpec := lobby.spectators[action.playerId]; isSpec {
 		if action.actionType == Disconnect {
 			lobby.removeSpectator(action.playerId, action.conn)
 		}

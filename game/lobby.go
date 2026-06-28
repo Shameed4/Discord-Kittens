@@ -168,7 +168,6 @@ type PlayerAction struct {
 	requestedCard    Card           // card requested from 3 combo
 	wantNoped        bool           // when placing a nope, true means player wants to nope, false means yup
 	conn             chan GameState // only used for disconnect actions to ensure right channel is closed
-	isSpectator      bool           // when true, playerId is a spectator id (only Disconnect is honored)
 }
 
 type PendingNopeableAction struct {

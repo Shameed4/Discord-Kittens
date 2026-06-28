@@ -180,22 +180,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	// Spectators are watch-only: they receive broadcasts via the writer goroutine
-	// above but never drive game actions. We only read to detect their departure.
 	if joinResponse.isSpectator {
 		log.Printf("Spectator %d joined lobby %s", playerId, lobbyName)
-		for {
-			if _, _, err := ws.ReadMessage(); err != nil {
-				break
-			}
-		}
-		lobby.ActionQueue <- PlayerAction{
-			playerId:    playerId,
-			actionType:  Disconnect,
-			isSpectator: true,
-			conn:        gameStateChan,
-		}
-		return
 	}
 
 	// send client updates to lobby
