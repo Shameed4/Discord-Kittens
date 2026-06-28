@@ -3,6 +3,9 @@ import type { PlayerState } from '../../../models/game-state';
 interface GameOverOverlayProps {
   players: PlayerState[];
   isSpectator: boolean;
+  // Hidden inside Discord: the activity is bound to the instance and there's no
+  // home screen to return to, so "Leave Lobby" would be a dead end.
+  hideLeave: boolean;
   onLeave: () => void;
   onRestart: () => void;
 }
@@ -10,6 +13,7 @@ interface GameOverOverlayProps {
 export default function GameOverOverlay({
   players,
   isSpectator,
+  hideLeave,
   onLeave,
   onRestart,
 }: GameOverOverlayProps) {
@@ -30,12 +34,14 @@ export default function GameOverOverlay({
               Restart Lobby
             </button>
           )}
-          <button
-            onClick={onLeave}
-            className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors"
-          >
-            Leave Lobby
-          </button>
+          {!hideLeave && (
+            <button
+              onClick={onLeave}
+              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition-colors"
+            >
+              Leave Lobby
+            </button>
+          )}
         </div>
       </div>
     </div>

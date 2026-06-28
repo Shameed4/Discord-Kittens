@@ -486,8 +486,9 @@ export default function GamePage() {
           <GameOverOverlay
             players={players}
             isSpectator={isSpectator}
+            hideLeave={Boolean(discordInstanceId)}
             onLeave={handleLeave}
-            onRestart={() => setShowRestartConfirm(true)}
+            onRestart={() => sendAction({ action: 'RESTART_LOBBY' })}
           />
         )}
       </div>
