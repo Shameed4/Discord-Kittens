@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"time"
 )
@@ -22,6 +23,9 @@ const (
 )
 
 const nonKittenCardsPerPlayer = 7
+
+// kill lobbies that were empty for this long
+const emptyLobbyTTL = 60 * time.Second
 
 func (t TurnState) String() string {
 	switch t {
@@ -185,6 +189,7 @@ type PendingNopeableAction struct {
 }
 
 type Lobby struct {
+	name            string // map key in lobbies; lets the lobby delete itself when reaped
 	deck            []Card
 	playersMap      map[int]*Player
 	playersList     []*Player
@@ -205,17 +210,22 @@ type Lobby struct {
 	nopeTimer     *time.Timer
 	nopeDeadline  time.Time // when the current nope window closes
 
+	emptyTimer *time.Timer   // reap countdown; nil when not armed
+	done       chan struct{} // closed when run() exits so a racing joiner can detect a reaped lobby
+
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
 }
 
-func NewLobby() *Lobby {
+func NewLobby(name string) *Lobby {
 	return &Lobby{
+		name:        name,
 		playersList: make([]*Player, 0),
 		playersMap:  make(map[int]*Player),
 		spectators:  make(map[int]*Spectator),
 		ActionQueue: make(chan PlayerAction),
 		JoinQueue:   make(chan JoinRequest),
+		done:        make(chan struct{}),
 		turnState:   NotStarted,
 		nextId:      0,
 	}
@@ -409,12 +419,52 @@ func (lobby *Lobby) handleJoin(joinReq JoinRequest) {
 	lobby.broadcastGameState()
 }
 
+// number of people actively listening to the lobby (players/spectators)
+func (lobby *Lobby) liveConnections() int {
+	n := len(lobby.spectators)
+	for _, p := range lobby.playersList {
+		if p.IsOnline {
+			n++
+		}
+	}
+	return n
+}
+
+// resets/starts/ends timer based on number of active connections
+func (lobby *Lobby) refreshEmptyTimer() {
+	if lobby.liveConnections() == 0 {
+		if lobby.emptyTimer == nil {
+			lobby.emptyTimer = time.NewTimer(emptyLobbyTTL)
+		}
+	} else if lobby.emptyTimer != nil {
+		lobby.emptyTimer.Stop()
+		lobby.emptyTimer = nil
+	}
+}
+
+// delete this lobby
+func (lobby *Lobby) destroy() {
+	lobbiesMutex.Lock()
+	if lobbies[lobby.name] == lobby {
+		delete(lobbies, lobby.name)
+	}
+	lobbiesMutex.Unlock()
+	close(lobby.done)
+	log.Printf("Lobby reaped: %s", lobby.name)
+}
+
 func (lobby *Lobby) run() {
 	for {
-		var nopeC <-chan time.Time
+		lobby.refreshEmptyTimer()
+
+		var nopeC, emptyC <-chan time.Time
 		if lobby.nopeTimer != nil {
 			nopeC = lobby.nopeTimer.C
 		}
+		if lobby.emptyTimer != nil {
+			emptyC = lobby.emptyTimer.C
+		}
+
 		select {
 		case joinReq := <-lobby.JoinQueue:
 			lobby.handleJoin(joinReq)
@@ -428,6 +478,13 @@ func (lobby *Lobby) run() {
 
 		case <-nopeC:
 			lobby.handleNopeTimerComplete()
+
+		case <-emptyC:
+			// check in case someone joins after event has fired
+			if lobby.liveConnections() == 0 {
+				lobby.destroy()
+				return
+			}
 		}
 	}
 }
