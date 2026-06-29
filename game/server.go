@@ -72,13 +72,33 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lobby := NewLobby()
+	lobby := NewLobby(req.Name)
 	lobbies[req.Name] = lobby
 	go lobby.run()
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(`{"status": "created"}`))
 	log.Printf("Lobby created: %s", req.Name)
+}
+
+// resolveLobby returns a live lobby for name, creating one when create is set
+// (atomically, so simultaneous joiners can't double-create the same lobby).
+// Caller must not hold lobbiesMutex. ok is false only when the lobby is absent
+// and create is false.
+func resolveLobby(name string, create bool) (*Lobby, bool) {
+	lobbiesMutex.Lock()
+	defer lobbiesMutex.Unlock()
+	lobby, exists := lobbies[name]
+	if !exists {
+		if !create {
+			return nil, false
+		}
+		lobby = NewLobby(name)
+		lobbies[name] = lobby
+		go lobby.run()
+		log.Printf("Lobby auto-created: %s", name)
+	}
+	return lobby, true
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -93,22 +113,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	// fly; the website "join" flow omits it and still 404s on a missing lobby.
 	create := r.URL.Query().Get("create") == "1"
 
-	// find if lobby exists, creating it atomically when auto-create is requested
-	// so simultaneous joiners can't double-create the same lobby
-	lobbiesMutex.Lock()
-	lobby, exists := lobbies[lobbyName]
-	if !exists {
-		if !create {
-			lobbiesMutex.Unlock()
-			http.Error(w, "Lobby not found. Create it first.", http.StatusNotFound)
-			return
-		}
-		lobby = NewLobby()
-		lobbies[lobbyName] = lobby
-		go lobby.run()
-		log.Printf("Lobby auto-created: %s", lobbyName)
+	lobby, ok := resolveLobby(lobbyName, create)
+	if !ok {
+		http.Error(w, "Lobby not found. Create it first.", http.StatusNotFound)
+		return
 	}
-	lobbiesMutex.Unlock()
 
 	// upgrade the connection
 	ws, err := upgrader.Upgrade(w, r, nil)
@@ -134,7 +143,23 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Send:   gameStateChan,
 		Result: joinResultChan,
 	}
-	lobby.JoinQueue <- joinReq
+	// Hand the join to the lobby goroutine. The lobby may have been reaped for
+	// inactivity between resolveLobby and now (notably during the WS upgrade);
+	// done is closed on reap, so re-resolve and retry instead of blocking
+	// forever on a dead goroutine's JoinQueue.
+	for {
+		select {
+		case lobby.JoinQueue <- joinReq:
+		case <-lobby.done:
+			lobby, ok = resolveLobby(lobbyName, create)
+			if !ok {
+				ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Lobby not found"))
+				return
+			}
+			continue
+		}
+		break
+	}
 
 	joinResponse := <-joinResultChan
 	if !joinResponse.success {
@@ -245,10 +270,6 @@ func main() {
 	if err := godotenv.Load("../.env"); err != nil {
 		log.Printf("No .env file loaded: %v", err)
 	}
-
-	lobby := NewLobby()
-	lobbies["test"] = lobby
-	go lobby.run()
 
 	// Routes are served under /api so a single path prefix works across every
 	// environment: the Vite dev proxy, the Vercel rewrite, and the Discord
