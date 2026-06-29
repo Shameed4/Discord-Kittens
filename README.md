@@ -148,6 +148,10 @@ What's implemented:
 
 ## Getting Started
 
+> Running it as a **Discord activity** (creating the Discord app, tunnels/hosting, and URL
+> mappings)? See **[SETUP.md](SETUP.md)** for the full step-by-step guide. The quick start
+> below is for running the backend and frontend locally.
+
 **Environment:** Create a `.env` in the repo root (shared by the backend and Vite):
 
 ```bash

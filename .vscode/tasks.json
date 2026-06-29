@@ -30,6 +30,10 @@
         "command": "cloudflared tunnel --url http://localhost:5173 2>&1 | while IFS= read -r line; do echo \"$line\"; url=$(echo \"$line\" | grep -oE 'https://[a-z0-9-]+\\.trycloudflare\\.com'); if [ -n \"$url\" ]; then printf '%s' \"$url\" | pbcopy; echo \"=== Tunnel URL copied to clipboard: $url\"; fi; done",
         "options": { "shell": { "executable": "/bin/bash", "args": ["-c"] } }
       },
+      "linux": {
+        "command": "cloudflared tunnel --url http://localhost:5173 2>&1 | while IFS= read -r line; do echo \"$line\"; url=$(echo \"$line\" | grep -oE 'https://[a-z0-9-]+\\.trycloudflare\\.com'); if [ -n \"$url\" ]; then if command -v xclip >/dev/null 2>&1; then printf '%s' \"$url\" | xclip -selection clipboard; echo \"=== Tunnel URL copied to clipboard: $url\"; elif command -v xsel >/dev/null 2>&1; then printf '%s' \"$url\" | xsel --clipboard --input; echo \"=== Tunnel URL copied to clipboard: $url\"; elif command -v wl-copy >/dev/null 2>&1; then printf '%s' \"$url\" | wl-copy; echo \"=== Tunnel URL copied to clipboard: $url\"; else echo \"=== Tunnel URL (install xclip/xsel/wl-clipboard to auto-copy): $url\"; fi; fi; done",
+        "options": { "shell": { "executable": "/bin/bash", "args": ["-c"] } }
+      },
       "isBackground": true,
       "problemMatcher": [],
       "presentation": { "group": "dev", "panel": "dedicated", "reveal": "always" }
