@@ -52,9 +52,13 @@ All state mutations flow through these channels, so no mutexes are needed -- the
 
 Players carry a stable `UserId` (their Discord user id). When a player rejoins -- even mid-game -- the lobby reconnects them to their existing seat by `UserId` instead of creating a new one, so a dropped connection or a refreshed tab doesn't lose your hand. An id-less player can reclaim a disconnected id-less seat. The server also pings each WebSocket on an interval (and drops clients that stop ponging) so reverse proxies like Cloudflare don't sever idle connections.
 
+### Spectating & Lobby Reaping
+
+Someone who joins after the game has already started -- and can't reclaim a seat -- is admitted as a **watch-only spectator**: they receive a fully public game-state snapshot (no hands, future, or private reveals) and can't take actions. On a lobby restart, spectators are promoted into real seats. A lobby with no live connections (players or spectators) is automatically **reaped after 60 seconds**, and a join request racing that teardown transparently re-creates and retries against a fresh lobby.
+
 ### State Machine
 
-The game uses an 8-state turn machine to enforce valid transitions:
+The game uses a 9-state turn machine to enforce valid transitions:
 
 ```
 NotStarted ──► Normal ──► SeeingTheFuture
@@ -62,30 +66,38 @@ NotStarted ──► Normal ──► SeeingTheFuture
                   │          AwaitingKittenPlacement
                   │          AwaitingFavor
                   │          AwaitingDiscardTake
+                  │          AcceptingNopes
                   └──────► GameOver
 ```
 
 Every action is guarded by `assertTurnAndState()`, which validates both whose turn it is and which state transitions are legal. This prevents invalid game states at the protocol level.
 
+### Nope Window
+
+Single cards and 2/3-card combos don't resolve instantly. Playing one stashes a **pending action**, enters `AcceptingNopes`, and starts a 5-second timer. Any living player holding a **Nope** can play it to flip the action between noped and "yuped" (a nope on a nope), each play restarting the timer. When the window closes, the action is either applied or cancelled depending on how many nopes landed. The closing deadline is broadcast to clients so they can render a live countdown. (5-card combos and forced responses like favors are not nopeable.)
+
 ### Card System
 
-16 card types with a deck whose composition scales by player-count tier (`GetDeckConfig` / `GetExtraDefuses` in `cards.go`):
+17 card types with a deck whose composition scales by player-count tier (`GetDeckConfig` / `GetExtraDefuses` in `cards.go`):
 
-| Category | Cards                                                                                             | Count                                                                        |
-| -------- | ------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| Danger   | Exploding Kitten, Defuse                                                                          | n-1 kittens; everyone gets 1 defuse, with extras dealt into the deck by tier |
-| Action   | Skip, Attack, Targeted Attack, Shuffle, Draw From Bottom, See The Future, Alter The Future, Favor | tiered (more copies as the table grows)                                      |
-| Combo    | Cat 1-5, Feral Cat                                                                                | tiered (more copies as the table grows)                                      |
+| Category | Cards                                                                                                   | Count                                                                        |
+| -------- | ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Danger   | Exploding Kitten, Defuse                                                                                | n-1 kittens; everyone gets 1 defuse, with extras dealt into the deck by tier |
+| Action   | Skip, Attack, Targeted Attack, Shuffle, Draw From Bottom, See The Future, Alter The Future, Favor, Nope | tiered (more copies as the table grows)                                      |
+| Combo    | Tacocat, Hairy Potato Cat, Cattermelon, Rainbow-Ralphing Cat, Rage Cat, Feral Cat                      | tiered (more copies as the table grows)                                      |
 
 The three tiers are **2-3 players (small)**, **4-6 (medium)**, and **7-10 (large)** -- each card type has a per-tier count rather than a flat multiplier.
 
 ### Action Handling
 
-The action handler (`action.go`) processes 9 distinct action types through a switch dispatch:
+The action handler (`action.go`) processes 12 distinct action types through a switch dispatch:
 
 - **StartGame** -- initialize deck, deal hands, insert kittens
+- **RandomizeOrder** -- shuffle the seating order before the game begins (pre-game only)
+- **RestartLobby** -- reset a finished/in-progress game back to the lobby, promoting spectators to seated players
 - **DrawCard** -- draw the top card, with Exploding Kitten / Defuse resolution
-- **PlayCard** -- execute a single card's effect (Skip, Attack, Targeted Attack, Shuffle, Draw From Bottom, See/Alter The Future, Favor)
+- **PlayCard** -- queue a single card's effect (Skip, Attack, Targeted Attack, Shuffle, Draw From Bottom, See/Alter The Future, Favor) for the nope window
+- **PlayNope** -- nope (or "yup") the pending action during the nope window
 - **Combo** -- 2-card (steal random), 3-card (steal named), and 5-card (take from discard) combinations
 - **PlaceKitten** -- reinsert a defused Exploding Kitten at any deck position
 - **AlterFuture** -- submit a rearranged ordering of the top 3 cards
@@ -115,6 +127,9 @@ What's implemented:
 - **Round-table game screen** -- player seats around a felt, deck/discard piles, turn indicator, under-attack notice, and an error banner
 - **Hand & action bar** -- click cards to select, play singles or combos, draw, and start the game
 - **Interaction prompts** -- target picker, kitten placement, See/Alter The Future viewer & drag-reorder, favor giver, discard picker, and a game-over overlay
+- **Nope window** -- a Nope button and banner with a live countdown of the nope deadline, so anyone holding a Nope can cancel (or re-allow) a pending play
+- **Restart flow** -- a confirm prompt to reset a finished game back to the lobby (spectators included)
+- **Spectator mode** -- watch-only clients that joined mid-game get a public view with the hand and action bar hidden behind a "Spectating" banner
 - **Live game log** -- a running, per-player feed of every action (with private reveals to the players involved)
 - **Resilient connection** -- auto-reconnect with exponential backoff + jitter, reconnecting to the same seat by Discord user id
 - **Browser fallback** -- create or join a lobby by name when running outside Discord
