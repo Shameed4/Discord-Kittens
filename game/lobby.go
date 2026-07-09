@@ -64,6 +64,15 @@ type Player struct {
 	Send chan GameState
 }
 
+type PlayerSnapshot struct {
+	Hand          []Card
+	Id            int
+	DiscordUserId string
+	Name          string
+	Avatar        string
+	IsAlive       bool
+}
+
 type PlayerGameState struct {
 	Id        int    `json:"id"`
 	Name      string `json:"name"`
@@ -95,11 +104,16 @@ type GameState struct {
 	Err            string   `json:"err,omitempty"`
 }
 
-// LastAction holds the description of the most recent game event.
+// CompletedAction holds the description of the most recent game event.
 // Private overrides Public for specific players (e.g., to reveal what card was stolen from them).
-type LastAction struct {
+type CompletedAction struct {
 	Public  string
 	Private map[int]string // playerIdx -> personalized message
+}
+
+type CompletedActionSnapshot struct {
+	Public  string         `json:"public"`
+	Private map[int]string `json:"private"`
 }
 
 type JoinRequest struct {
@@ -188,6 +202,18 @@ type PendingNopeableAction struct {
 	isNoped        bool
 }
 
+type PendingNopeableActionSnapshot struct {
+	PlayerId   int        `json:"playerId"`
+	ActionType ActionType `json:"actionType"`
+
+	// optional fields
+	PlayedCard     Card `json:"playedCard"`     // for play card actions
+	ComboSize      int  `json:"comboSize"`      // for combo actions
+	TargetedPlayer int  `json:"targetedPlayer"` // player being targeted
+	RequestedCard  Card `json:"requestedCard"`  // card requested from 3 combo
+	IsNoped        bool `json:"isNoped"`
+}
+
 type Lobby struct {
 	name            string // map key in lobbies; lets the lobby delete itself when reaped
 	deck            []Card
@@ -201,8 +227,8 @@ type Lobby struct {
 	turnsToTake     int
 	underAttack     bool
 	discardPile     []Card
-	lastAction      LastAction
-	actionLog       []LastAction
+	lastAction      CompletedAction
+	actionLog       []CompletedAction
 
 	targetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
 
@@ -215,6 +241,74 @@ type Lobby struct {
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
+}
+
+type LobbySnapshot struct {
+	Name            string // map key in lobbies; lets the lobby delete itself when reaped
+	Deck            []Card
+	PlayersList     []PlayerSnapshot
+	NextId          int // single counter so player and spectator ids never collide
+	CurrentPlayerId int
+	TurnState       TurnState
+	LivingPlayers   int
+	TurnsToTake     int
+	UnderAttack     bool
+	DiscardPile     []Card
+	ActionLog       []CompletedActionSnapshot
+
+	TargetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
+
+	PendingAction *PendingNopeableActionSnapshot // relevant when card is nopeable
+	NopeDeadline  time.Time                      // when the current nope window closes
+}
+
+func (lobby *Lobby) SerializeLobby() *LobbySnapshot {
+	res := &LobbySnapshot{
+		Name:            lobby.name,
+		Deck:            lobby.deck,
+		PlayersList:     make([]PlayerSnapshot, len(lobby.playersList)),
+		NextId:          lobby.nextId,
+		CurrentPlayerId: lobby.currentPlayerId,
+		TurnState:       lobby.turnState,
+		LivingPlayers:   lobby.livingPlayers,
+		TurnsToTake:     lobby.turnsToTake,
+		UnderAttack:     lobby.underAttack,
+		DiscardPile:     lobby.discardPile,
+		TargetedPlayer:  lobby.targetedPlayer,
+		NopeDeadline:    lobby.nopeDeadline,
+		ActionLog:       make([]CompletedActionSnapshot, len(lobby.actionLog)),
+	}
+
+	if lobby.pendingAction != nil {
+		res.PendingAction = &PendingNopeableActionSnapshot{
+			PlayerId:       lobby.pendingAction.playerId,
+			ActionType:     lobby.pendingAction.actionType,
+			PlayedCard:     lobby.pendingAction.playedCard,
+			ComboSize:      lobby.pendingAction.comboSize,
+			TargetedPlayer: lobby.pendingAction.targetedPlayer,
+			RequestedCard:  lobby.pendingAction.requestedCard,
+			IsNoped:        lobby.pendingAction.isNoped,
+		}
+	}
+
+	for i, p := range lobby.playersList {
+		res.PlayersList[i] = PlayerSnapshot{
+			Hand:          p.Hand,
+			Id:            p.Id,
+			DiscordUserId: p.DiscordUserId,
+			Name:          p.Name,
+			Avatar:        p.Avatar,
+			IsAlive:       p.IsAlive,
+		}
+	}
+
+	for i, a := range lobby.actionLog {
+		res.ActionLog[i] = CompletedActionSnapshot{
+			Public:  a.Public,
+			Private: a.Private,
+		}
+	}
+	return res
 }
 
 func NewLobby(name string) *Lobby {
@@ -551,5 +645,5 @@ func (lobby *Lobby) resetToLobby(restarterId int) {
 		lobby.currentPlayerId = lobby.playersList[0].Id
 	}
 	lobby.actionLog = nil
-	lobby.recordAction(LastAction{Public: fmt.Sprintf("%s restarted the lobby", name)})
+	lobby.recordAction(CompletedAction{Public: fmt.Sprintf("%s restarted the lobby", name)})
 }
