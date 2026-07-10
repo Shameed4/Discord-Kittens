@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"os"
 	"sync"
 	"time"
 
@@ -278,9 +277,6 @@ func main() {
 	http.HandleFunc("/api/ws", handleWebSocket)
 	http.HandleFunc("/api/token", handleToken)
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	port := LoadConfig().Port
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
