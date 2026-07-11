@@ -270,6 +270,8 @@ func main() {
 		log.Printf("No .env file loaded: %v", err)
 	}
 
+	cfg = LoadConfig()
+
 	// Routes are served under /api so a single path prefix works across every
 	// environment: the Vite dev proxy, the Vercel rewrite, and the Discord
 	// activity URL mapping all forward /api verbatim (none of them strip it).
@@ -277,6 +279,5 @@ func main() {
 	http.HandleFunc("/api/ws", handleWebSocket)
 	http.HandleFunc("/api/token", handleToken)
 
-	port := LoadConfig().Port
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
 }

@@ -5,7 +5,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os"
 )
 
 type TokenRequest struct {
@@ -29,8 +28,8 @@ func handleToken(w http.ResponseWriter, r *http.Request) {
 
 	// Exchange the code for an access_token
 	resp, err := http.PostForm("https://discord.com/api/oauth2/token", url.Values{
-		"client_id":     {os.Getenv("VITE_DISCORD_CLIENT_ID")},
-		"client_secret": {os.Getenv("DISCORD_CLIENT_SECRET")},
+		"client_id":     {cfg.DiscordClientID},
+		"client_secret": {cfg.DiscordClientSecret},
 		"grant_type":    {"authorization_code"},
 		"code":          {req.Code},
 	})
