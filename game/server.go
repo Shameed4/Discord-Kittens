@@ -109,22 +109,27 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Discord auto-join passes create=1 so the instance lobby is created on the
-	// fly; the website "join" flow omits it and still 404s on a missing lobby.
+	// fly; the website "join" flow omits it, so a missing lobby is rejected below.
 	create := r.URL.Query().Get("create") == "1"
 
-	lobby, ok := resolveLobby(lobbyName, create)
-	if !ok {
-		http.Error(w, "Lobby not found. Create it first.", http.StatusNotFound)
-		return
-	}
-
-	// upgrade the connection
+	// Upgrade before resolving the lobby. A pre-upgrade HTTP 404 reaches the
+	// browser only as a codeless 1006 close — the WebSocket API hides the status,
+	// so the client can't distinguish a bad lobby name from a network blip and
+	// retries forever. Upgrading first lets us reject with an application close
+	// code (4000) + reason the client can read and act on, matching the
+	// reaped-mid-join path below.
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Upgrade error:", err)
 		return
 	}
 	defer ws.Close()
+
+	lobby, ok := resolveLobby(lobbyName, create)
+	if !ok {
+		ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Lobby not found. Create it first."))
+		return
+	}
 
 	// request to join lobby
 	username := r.URL.Query().Get("username")

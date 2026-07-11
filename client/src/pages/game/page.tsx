@@ -39,6 +39,9 @@ export default function GamePage() {
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     ConnectionStatus.Connecting,
   );
+  // Reason string from a terminal close (e.g. the server's "Lobby not found"),
+  // shown alongside the Disconnected badge. Null while connecting/connected.
+  const [disconnectReason, setDisconnectReason] = useState<string | null>(null);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
 
@@ -57,6 +60,8 @@ export default function GamePage() {
     let cancelled = false; // set on unmount/leave so we stop auto-reconnecting
     let attempt = 0; // reconnect attempt counter, drives exponential backoff
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // limit number of exponential backoff attempts
+    const maxReconnectAttempts = 8;
 
     const connect = async () => {
       // Wait for the Discord auth handshake to resolve so getUsername() returns
@@ -89,6 +94,7 @@ export default function GamePage() {
       ws.current = socket;
       socket.onopen = () => {
         attempt = 0; // successful connection — reset backoff
+        setDisconnectReason(null);
         setConnectionStatus(ConnectionStatus.Connected);
       };
       socket.onmessage = (event) => {
@@ -105,14 +111,20 @@ export default function GamePage() {
         // 1000: clean server close (our own quit, or a duplicate-tab takeover —
         //       another connection is now authoritative, so don't fight it).
         // 4000: server rejected the join (e.g. game in progress with no seat to
-        //       reclaim). Surface the reason and stop.
+        //       reclaim, or a missing lobby). Surface the reason and stop.
         if (event.code === 1000 || event.code === 4000) {
+          if (event.reason) setDisconnectReason(event.reason);
           setConnectionStatus(ConnectionStatus.Disconnected);
           return;
         }
 
         // Unexpected drop (network loss, code 1006, etc.) — reconnect with
         // exponential backoff capped at 15s, plus jitter to avoid thundering herd.
+        // Give up once we've exhausted the attempt budget without ever opening.
+        if (attempt >= maxReconnectAttempts) {
+          setConnectionStatus(ConnectionStatus.Disconnected);
+          return;
+        }
         const delay =
           Math.min(1000 * 2 ** attempt, 15000) + Math.random() * 300;
         attempt += 1;
@@ -523,7 +535,10 @@ export default function GamePage() {
             right: 'calc(0.5rem + var(--sair))',
           }}
         >
-          {connectionStatus}
+          {disconnectReason &&
+            connectionStatus === ConnectionStatus.Disconnected
+            ? disconnectReason
+            : connectionStatus}
         </div>
       )}
 
