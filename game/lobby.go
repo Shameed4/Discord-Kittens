@@ -611,6 +611,7 @@ func (lobby *Lobby) destroy() {
 		delete(lobbies, lobby.name)
 	}
 	lobbiesMutex.Unlock()
+	coordinator.Release(lobby.name)
 	close(lobby.done)
 	log.Printf("Lobby reaped: %s", lobby.name)
 }
