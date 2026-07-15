@@ -18,6 +18,8 @@ const (
 	writeWait  = 10 * time.Second
 )
 
+var coordinator Coordinator = LocalCoordinator{}
+
 type CreateLobbyRequest struct {
 	Name string `json:"name"`
 }
@@ -71,9 +73,20 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	lobby := NewLobby(req.Name)
-	lobbies[req.Name] = lobby
-	go lobby.run()
+	owned, addr, err := coordinator.Acquire(req.Name)
+	if owned {
+		lobby := NewLobby(req.Name)
+		lobbies[req.Name] = lobby
+		go lobby.run()
+	} else if addr != "" {
+		log.Printf("Tried to create lobby but it already exists in %s", addr)
+		http.Error(w, "Lobby already exists", http.StatusConflict)
+		return
+	} else {
+		log.Printf("Error connecting with redis %v", err)
+		http.Error(w, "Internal error", http.StatusServiceUnavailable)
+		return
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(`{"status": "created"}`))
