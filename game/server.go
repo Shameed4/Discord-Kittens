@@ -46,6 +46,10 @@ var (
 	}
 )
 
+func isOwnAddress(addr string) bool {
+	return addr == cfg.AdvertiseAddr
+}
+
 func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	log.Println("Requested to create lobby")
 	if r.Method != http.MethodPost {
@@ -65,27 +69,36 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lobbiesMutex.Lock()
-	defer lobbiesMutex.Unlock()
+	_, exists := lobbies[req.Name]
+	lobbiesMutex.Unlock()
 
 	// Check if lobby already exists
-	if _, exists := lobbies[req.Name]; exists {
+	if exists {
 		http.Error(w, "Lobby already exists", http.StatusConflict)
 		return
 	}
 
-	owned, addr, err := coordinator.Acquire(req.Name)
-	if owned {
-		lobby := NewLobby(req.Name)
-		lobbies[req.Name] = lobby
-		go lobby.run()
-	} else if addr != "" {
+	addr, err := coordinator.Acquire(req.Name)
+	if err != nil {
+		http.Error(w, "Internal error", http.StatusServiceUnavailable)
+		return
+	} else if isOwnAddress(addr) {
 		log.Printf("Tried to create lobby but it already exists in %s", addr)
 		http.Error(w, "Lobby already exists", http.StatusConflict)
 		return
 	} else {
-		log.Printf("Error connecting with redis %v", err)
-		http.Error(w, "Internal error", http.StatusServiceUnavailable)
-		return
+		lobbiesMutex.Lock()
+		_, exists := lobbies[req.Name]
+		if exists {
+			lobbiesMutex.Unlock()
+			http.Error(w, "Lobby already exists", http.StatusConflict)
+			return
+		} else {
+			lobby := NewLobby(req.Name)
+			lobbies[req.Name] = lobby
+			go lobby.run()
+		}
+		lobbiesMutex.Unlock()
 	}
 
 	w.WriteHeader(http.StatusCreated)
@@ -93,24 +106,45 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Lobby created: %s", req.Name)
 }
 
-// resolveLobby returns a live lobby for name, creating one when create is set
-// (atomically, so simultaneous joiners can't double-create the same lobby).
-// Caller must not hold lobbiesMutex. ok is false only when the lobby is absent
-// and create is false.
-func resolveLobby(name string, create bool) (*Lobby, bool) {
+// resolveLobby returns either a live lobby, the node that contains the live lobby, or
+// an error, depending on if the create flag is used and if the create flag is set.
+// the caller must not hold the lobbies mutex.
+func resolveLobby(name string, create bool) (*Lobby, string, error) {
 	lobbiesMutex.Lock()
-	defer lobbiesMutex.Unlock()
-	lobby, exists := lobbies[name]
-	if !exists {
+	lobby, existsLocally := lobbies[name]
+	lobbiesMutex.Unlock()
+	var ownerAddr string
+	var err error
+	if !existsLocally {
 		if !create {
-			return nil, false
+			ownerAddr, err = coordinator.Lookup(name)
+		} else {
+			ownerAddr, err = coordinator.Acquire(name)
+			if isOwnAddress(ownerAddr) {
+				lobbiesMutex.Lock()
+				defer lobbiesMutex.Unlock()
+				lobby, existsLocally = lobbies[name]
+				if !existsLocally {
+					lobby = NewLobby(name)
+					lobbies[name] = lobby
+					go lobby.run()
+					log.Printf("Lobby auto-created: %s", name)
+				}
+			}
 		}
-		lobby = NewLobby(name)
-		lobbies[name] = lobby
-		go lobby.run()
-		log.Printf("Lobby auto-created: %s", name)
 	}
-	return lobby, true
+	return lobby, ownerAddr, err
+}
+
+func sendRejectedResolveLobby(lobby *Lobby, ownerAddr string, err error, ws *websocket.Conn) bool {
+	if err != nil {
+		ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Internal server error - please try again"))
+		return true
+	} else if lobby == nil && ownerAddr == "" {
+		ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Lobby not found - create it first"))
+		return true
+	}
+	return false
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -138,9 +172,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ws.Close()
 
-	lobby, ok := resolveLobby(lobbyName, create)
-	if !ok {
-		ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Lobby not found. Create it first."))
+	lobby, addr, err := resolveLobby(lobbyName, create)
+	if sendRejectedResolveLobby(lobby, addr, err, ws) {
 		return
 	}
 
@@ -168,9 +201,8 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		select {
 		case lobby.JoinQueue <- joinReq:
 		case <-lobby.done:
-			lobby, ok = resolveLobby(lobbyName, create)
-			if !ok {
-				ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Lobby not found"))
+			lobby, addr, err = resolveLobby(lobbyName, create)
+			if sendRejectedResolveLobby(lobby, addr, err, ws) {
 				return
 			}
 			continue
