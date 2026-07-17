@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -17,6 +18,7 @@ const (
 	pingPeriod = 45 * time.Second
 	writeWait  = 10 * time.Second
 )
+const proxyHeader = "X-Kittens-Proxied"
 
 var coordinator Coordinator = LocalCoordinator{}
 
@@ -48,6 +50,45 @@ var (
 
 func isOwnAddress(addr string) bool {
 	return addr == cfg.AdvertiseAddr
+}
+
+func proxyWebSocket(client *websocket.Conn, ownerAddr string, r *http.Request) {
+	target := url.URL{Scheme: "ws", Host: ownerAddr, Path: "/api/ws", RawQuery: r.URL.RawQuery}
+
+	header := http.Header{}
+	header.Set(proxyHeader, "1") // loop guard
+
+	upstream, resp, err := websocket.DefaultDialer.Dial(target.String(), header)
+	if err != nil {
+		log.Printf("proxy dial to %s failed: %v", ownerAddr, err)
+		client.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4000, "Could not reach lobby host"))
+		return
+	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+	defer upstream.Close()
+
+	errc := make(chan error, 2)
+	go pumpWS(upstream, client, errc)
+	go pumpWS(client, upstream, errc)
+	<-errc
+}
+
+func pumpWS(dst, src *websocket.Conn, errc chan error) {
+	for {
+		mt, data, err := src.ReadMessage()
+		if err != nil {
+			errc <- err
+			return
+		}
+		dst.SetWriteDeadline(time.Now().Add(writeWait))
+		if err := dst.WriteMessage(mt, data); err != nil {
+			errc <- err
+			return
+		}
+	}
 }
 
 func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
@@ -172,11 +213,6 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 	defer ws.Close()
 
-	lobby, addr, err := resolveLobby(lobbyName, create)
-	if sendRejectedResolveLobby(lobby, addr, err, ws) {
-		return
-	}
-
 	// request to join lobby
 	username := r.URL.Query().Get("username")
 	userId := r.URL.Query().Get("userId")
@@ -193,18 +229,34 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Send:   gameStateChan,
 		Result: joinResultChan,
 	}
-	// Hand the join to the lobby goroutine. The lobby may have been reaped for
-	// inactivity between resolveLobby and now (notably during the WS upgrade);
-	// done is closed on reap, so re-resolve and retry instead of blocking
-	// forever on a dead goroutine's JoinQueue.
+
+	var (
+		lobby *Lobby
+		addr  string
+	)
 	for {
+		lobby, addr, err = resolveLobby(lobbyName, create)
+		if sendRejectedResolveLobby(lobby, addr, err, ws) {
+			return
+		}
+
+		if lobby == nil {
+			if r.Header.Get(proxyHeader) != "" {
+				ws.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(4000, "Lobby owner unavailable"))
+				return
+			}
+			proxyWebSocket(ws, addr, r)
+			return
+		}
+
+		// Hand the join to the lobby goroutine. The lobby may have been reaped for
+		// inactivity between resolveLobby and now (notably during the WS upgrade);
+		// done is closed on reap, so re-resolve and retry instead of blocking
+		// forever on a dead goroutine's JoinQueue.
 		select {
 		case lobby.JoinQueue <- joinReq:
 		case <-lobby.done:
-			lobby, addr, err = resolveLobby(lobbyName, create)
-			if sendRejectedResolveLobby(lobby, addr, err, ws) {
-				return
-			}
 			continue
 		}
 		break
