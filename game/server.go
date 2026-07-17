@@ -144,7 +144,7 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Internal error", http.StatusServiceUnavailable)
 		return
-	} else if isOwnAddress(addr) {
+	} else if !isOwnAddress(addr) {
 		log.Printf("Tried to create lobby but it already exists in %s", addr)
 		http.Error(w, "Lobby already exists", http.StatusConflict)
 		return
