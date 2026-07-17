@@ -20,8 +20,6 @@ const (
 )
 const proxyHeader = "X-Kittens-Proxied"
 
-var coordinator Coordinator = LocalCoordinator{}
-
 type CreateLobbyRequest struct {
 	Name string `json:"name"`
 }
@@ -396,7 +394,7 @@ func main() {
 	}
 
 	cfg = LoadConfig()
-
+	coordinator = newCoordinator()
 	// Routes are served under /api so a single path prefix works across every
 	// environment: the Vite dev proxy, the Vercel rewrite, and the Discord
 	// activity URL mapping all forward /api verbatim (none of them strip it).
