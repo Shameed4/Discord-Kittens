@@ -144,9 +144,12 @@ return 0
 func (coord RedisCoordinator) Release(name string, epoch int64) {
 	ctx, cancel := opCtx()
 	defer cancel()
-	releaseScript.Run(ctx, coord.rdb,
+	err := releaseScript.Run(ctx, coord.rdb,
 		[]string{lobbyOwnerKey(name), lobbyEpochKey(name)},
-		epoch)
+		epoch).Err()
+	if err != nil {
+		log.Printf("release lobby %q: %v (lease will expire on its own)", name, err)
+	}
 }
 
 // refreshes the key if the right lobby owner is requesting it

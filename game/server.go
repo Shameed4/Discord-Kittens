@@ -142,6 +142,7 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 
 	addr, epoch, err := coordinator.Acquire(req.Name)
 	if err != nil {
+		log.Printf("create lobby %q: acquire failed: %v", req.Name, err)
 		http.Error(w, "Internal error", http.StatusServiceUnavailable)
 		return
 	} else if !isOwnAddress(addr) {
@@ -201,6 +202,7 @@ func resolveLobby(name string, create bool) (*Lobby, string, error) {
 
 func sendRejectedResolveLobby(lobby *Lobby, ownerAddr string, err error, ws *websocket.Conn) bool {
 	if err != nil {
+		log.Printf("resolve lobby failed: %v", err)
 		ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Internal server error - please try again"))
 		return true
 	} else if lobby == nil && ownerAddr == "" {
