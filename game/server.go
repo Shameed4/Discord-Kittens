@@ -52,6 +52,7 @@ func isOwnAddress(addr string) bool {
 	return addr == cfg.AdvertiseAddr
 }
 
+// serves as a proxy connection between client and host node
 func proxyWebSocket(client *websocket.Conn, ownerAddr string, r *http.Request) {
 	target := url.URL{Scheme: "ws", Host: ownerAddr, Path: "/api/ws", RawQuery: r.URL.RawQuery}
 
@@ -70,12 +71,34 @@ func proxyWebSocket(client *websocket.Conn, ownerAddr string, r *http.Request) {
 	}
 	defer upstream.Close()
 
+	// The proxy is transparent: it forwards ping/pong across the hop rather than
+	// answering them, so the owner node's keepalive/liveness heartbeat reaches the
+	// real client end-to-end (and a dead client is detected there, not masked here).
+	forwardControl(client, upstream)
+
 	errc := make(chan error, 2)
 	go pumpWS(upstream, client, errc)
 	go pumpWS(client, upstream, errc)
 	<-errc
 }
 
+// relays all pings and pongs between the client and the upstream
+func forwardControl(client, upstream *websocket.Conn) {
+	client.SetPingHandler(func(data string) error {
+		return upstream.WriteControl(websocket.PingMessage, []byte(data), time.Now().Add(writeWait))
+	})
+	upstream.SetPingHandler(func(data string) error {
+		return client.WriteControl(websocket.PingMessage, []byte(data), time.Now().Add(writeWait))
+	})
+	client.SetPongHandler(func(data string) error {
+		return upstream.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(writeWait))
+	})
+	upstream.SetPongHandler(func(data string) error {
+		return client.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(writeWait))
+	})
+}
+
+// relays messages from src to dst, writing to error channel if an error occurs.
 func pumpWS(dst, src *websocket.Conn, errc chan error) {
 	for {
 		mt, data, err := src.ReadMessage()
