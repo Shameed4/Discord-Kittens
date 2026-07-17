@@ -140,7 +140,7 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	addr, _, err := coordinator.Acquire(req.Name)
+	addr, epoch, err := coordinator.Acquire(req.Name)
 	if err != nil {
 		http.Error(w, "Internal error", http.StatusServiceUnavailable)
 		return
@@ -156,7 +156,7 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Lobby already exists", http.StatusConflict)
 			return
 		} else {
-			lobby := NewLobby(req.Name)
+			lobby := NewLobby(req.Name, epoch)
 			lobbies[req.Name] = lobby
 			go lobby.run()
 		}
@@ -176,18 +176,19 @@ func resolveLobby(name string, create bool) (*Lobby, string, error) {
 	lobby, existsLocally := lobbies[name]
 	lobbiesMutex.Unlock()
 	var ownerAddr string
+	var epoch int64
 	var err error
 	if !existsLocally {
 		if !create {
 			ownerAddr, err = coordinator.Lookup(name)
 		} else {
-			ownerAddr, _, err = coordinator.Acquire(name)
+			ownerAddr, epoch, err = coordinator.Acquire(name)
 			if isOwnAddress(ownerAddr) {
 				lobbiesMutex.Lock()
 				defer lobbiesMutex.Unlock()
 				lobby, existsLocally = lobbies[name]
 				if !existsLocally {
-					lobby = NewLobby(name)
+					lobby = NewLobby(name, epoch)
 					lobbies[name] = lobby
 					go lobby.run()
 					log.Printf("Lobby auto-created: %s", name)

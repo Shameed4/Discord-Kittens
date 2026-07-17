@@ -28,7 +28,9 @@ type Coordinator interface {
 	// its own address if this node owns it, or "" if not found.
 	Lookup(name string) (ownerAddr string, err error)
 	// deletes the lobby so other nodes know it doesn't exist
-	Release(name string)
+	Release(name string, epoch int64)
+	// refreshes lobby ttl
+	Refresh(name string, epoch int64) (success bool, err error)
 }
 
 // Local coordinator methods are mostly no-ops to ensure compatability with the RedisCoordinator
@@ -55,8 +57,12 @@ func (coord LocalCoordinator) Lookup(name string) (ownerAddr string, err error) 
 	return "", nil
 }
 
-// intentional no op
-func (coord LocalCoordinator) Release(name string) {}
+// intentional no ops
+func (coord LocalCoordinator) Release(name string, epoch int64) {}
+
+func (coord LocalCoordinator) Refresh(name string, epoch int64) (bool, error) {
+	return true, nil
+}
 
 type RedisCoordinator struct {
 	rdb *redis.Client
@@ -125,22 +131,40 @@ func (coord RedisCoordinator) Lookup(name string) (ownerAddr string, err error) 
 	return ownerAddr, err
 }
 
-// deletes the key if the right lobby owner is requesting it
-// keys[1] = lobby owner key
-// argv[1] = lobby owner addr
+// deletes the lobby key if the right lobby owner is requesting it
+// keys[1] = lobby owner key, keys[2] = lobby epoch key
+// argv[1] = lobby epoch
 var releaseScript = redis.NewScript(`
-if redis.call("GET", KEYS[1]) == ARGV[1] then
+if redis.call("GET", KEYS[2]) == ARGV[1] then
 	return redis.call("DEL", KEYS[1])
 end
 return 0
 `)
 
-func (coord RedisCoordinator) Release(name string) {
+func (coord RedisCoordinator) Release(name string, epoch int64) {
 	ctx, cancel := opCtx()
 	defer cancel()
 	releaseScript.Run(ctx, coord.rdb,
-		[]string{lobbyOwnerKey(name)},
-		cfg.AdvertiseAddr)
+		[]string{lobbyOwnerKey(name), lobbyEpochKey(name)},
+		epoch)
+}
+
+// refreshes the key if the right lobby owner is requesting it
+// keys[1] = lobby owner key, keys[2] = lobby epoch key
+// argv[1] = lobby epoch, argv[2] = ttl
+var refreshScript = redis.NewScript(`
+if redis.call("GET", KEYS[2]) == ARGV[1] then
+	return redis.call("EXPIRE", KEYS[1], ARGV[2])
+end
+return 0
+`)
+
+func (coord RedisCoordinator) Refresh(name string, epoch int64) (bool, error) {
+	ctx, cancel := opCtx()
+	defer cancel()
+	return refreshScript.Run(ctx, coord.rdb,
+		[]string{lobbyOwnerKey(name), lobbyEpochKey(name)},
+		epoch, int(leaseTTL.Seconds())).Bool()
 }
 
 func lobbyOwnerKey(name string) string {

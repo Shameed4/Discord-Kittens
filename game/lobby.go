@@ -241,6 +241,7 @@ type Lobby struct {
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
+	epoch       int64
 }
 
 type LobbySnapshot struct {
@@ -379,7 +380,7 @@ func DeserializeLobby(snapshot *LobbySnapshot) *Lobby {
 	return lobby
 }
 
-func NewLobby(name string) *Lobby {
+func NewLobby(name string, epoch int64) *Lobby {
 	return &Lobby{
 		name:        name,
 		playersList: make([]*Player, 0),
@@ -390,6 +391,7 @@ func NewLobby(name string) *Lobby {
 		done:        make(chan struct{}),
 		turnState:   NotStarted,
 		nextId:      0,
+		epoch:       epoch,
 	}
 }
 
@@ -611,7 +613,7 @@ func (lobby *Lobby) destroy() {
 		delete(lobbies, lobby.name)
 	}
 	lobbiesMutex.Unlock()
-	coordinator.Release(lobby.name)
+	coordinator.Release(lobby.name, lobby.epoch)
 	close(lobby.done)
 	log.Printf("Lobby reaped: %s", lobby.name)
 }
