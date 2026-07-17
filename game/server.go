@@ -140,7 +140,7 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	addr, err := coordinator.Acquire(req.Name)
+	addr, _, err := coordinator.Acquire(req.Name)
 	if err != nil {
 		http.Error(w, "Internal error", http.StatusServiceUnavailable)
 		return
@@ -181,7 +181,7 @@ func resolveLobby(name string, create bool) (*Lobby, string, error) {
 		if !create {
 			ownerAddr, err = coordinator.Lookup(name)
 		} else {
-			ownerAddr, err = coordinator.Acquire(name)
+			ownerAddr, _, err = coordinator.Acquire(name)
 			if isOwnAddress(ownerAddr) {
 				lobbiesMutex.Lock()
 				defer lobbiesMutex.Unlock()
