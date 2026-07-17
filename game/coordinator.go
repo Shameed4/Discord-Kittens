@@ -77,9 +77,9 @@ func opCtx() (context.Context, context.CancelFunc) {
 // keys[1] = lobby owner key, keys[2] = lobby epoch key
 // argv[1] = lobby advertise address, argv[2] = ttl
 var acquireScript = redis.NewScript(`
-local owner = redis.call("GET", KEYS[1])
-if owner then
-	return {owner, redis.call("GET", KEYS[2]) or "0"}
+local ownerAddr = redis.call("GET", KEYS[1])
+if ownerAddr then
+	return {ownerAddr, redis.call("GET", KEYS[2]) or "0"}
 end
 redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[2])
 return {ARGV[1], redis.call("INCR", KEYS[2])}
