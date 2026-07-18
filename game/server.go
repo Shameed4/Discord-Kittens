@@ -380,7 +380,12 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			action.requestedCard = requestedCard
 		}
 
-		lobby.ActionQueue <- action
+		select {
+		case lobby.ActionQueue <- action:
+			continue
+		case <-lobby.done:
+			return
+		}
 	}
 
 	quitAction := PlayerAction{
@@ -388,7 +393,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		actionType: Disconnect,
 		conn:       gameStateChan,
 	}
-	lobby.ActionQueue <- quitAction
+
+	select {
+	case lobby.ActionQueue <- quitAction:
+	case <-lobby.done:
+	}
 }
 
 func main() {

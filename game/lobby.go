@@ -395,6 +395,28 @@ func NewLobby(name string, epoch int64) *Lobby {
 	}
 }
 
+func (lobby *Lobby) heartbeat(leaseLost chan struct{}) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			success, err := coordinator.Refresh(lobby.name, lobby.epoch)
+			if err != nil {
+				log.Printf("heartbeat failed to connect to redis for lobby %s: %v", lobby.name, err)
+				continue
+			} else if !success {
+				log.Printf("heartbeat did not successfully renew for lobby %s", lobby.name)
+				close(leaseLost)
+				return
+			}
+		case <-lobby.done:
+			return
+		}
+	}
+}
+
 func (lobby *Lobby) startGame() error {
 	numPlayers := len(lobby.playersList)
 	if numPlayers < 2 {
@@ -618,7 +640,26 @@ func (lobby *Lobby) destroy() {
 	log.Printf("Lobby reaped: %s", lobby.name)
 }
 
+// deletes this lobby and disconnects all websockets associated with it
+func (lobby *Lobby) destroyAndDisconnectPlayers() {
+	for _, player := range lobby.playersList {
+		if player.IsOnline {
+			player.IsOnline = false
+			close(player.Send)
+		}
+	}
+
+	for specId, spectator := range lobby.spectators {
+		close(spectator.Send)
+		delete(lobby.spectators, specId)
+	}
+
+	lobby.destroy()
+}
+
 func (lobby *Lobby) run() {
+	leaseLost := make(chan struct{})
+	go lobby.heartbeat(leaseLost)
 	for {
 		lobby.refreshEmptyTimer()
 
@@ -650,6 +691,10 @@ func (lobby *Lobby) run() {
 				lobby.destroy()
 				return
 			}
+
+		case <-leaseLost:
+			lobby.destroyAndDisconnectPlayers()
+			return
 		}
 	}
 }

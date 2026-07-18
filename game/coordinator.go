@@ -16,6 +16,7 @@ const redisOpTimeout = 2 * time.Second
 
 // leaseTTL is how long a lobby ownership lease lives without a heartbeat renewal.
 const leaseTTL = 15 * time.Second
+const heartbeatInterval = leaseTTL / 3
 
 var coordinator Coordinator
 
