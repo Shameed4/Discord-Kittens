@@ -321,30 +321,21 @@ func (lobby *Lobby) SerializeLobby() *LobbySnapshot {
 	return snapshot
 }
 
-func DeserializeLobby(snapshot *LobbySnapshot) *Lobby {
-	lobby := &Lobby{
-		name:            snapshot.Name,
-		deck:            snapshot.Deck,
-		nextId:          snapshot.NextId,
-		currentPlayerId: snapshot.CurrentPlayerId,
-		turnState:       snapshot.TurnState,
-		livingPlayers:   snapshot.LivingPlayers,
-		turnsToTake:     snapshot.TurnsToTake,
-		underAttack:     snapshot.UnderAttack,
-		discardPile:     snapshot.DiscardPile,
-		targetedPlayer:  snapshot.TargetedPlayer,
-		nopeDeadline:    snapshot.NopeDeadline,
-		playersList:     make([]*Player, len(snapshot.PlayersList)),
-		playersMap:      make(map[int]*Player, len(snapshot.PlayersList)),
-		spectators:      make(map[int]*Spectator, 0),
-		actionLog:       make([]CompletedAction, len(snapshot.ActionLog)),
-		lastAction: CompletedAction{
-			Public:  snapshot.LastAction.Public,
-			Private: snapshot.LastAction.Private,
-		},
-		ActionQueue: make(chan PlayerAction),
-		JoinQueue:   make(chan JoinRequest),
-		done:        make(chan struct{}),
+func DeserializeLobby(snapshot *LobbySnapshot, epoch int64) *Lobby {
+	lobby := NewLobby(snapshot.Name, epoch)
+	lobby.deck = snapshot.Deck
+	lobby.nextId = snapshot.NextId
+	lobby.currentPlayerId = snapshot.CurrentPlayerId
+	lobby.turnState = snapshot.TurnState
+	lobby.livingPlayers = snapshot.LivingPlayers
+	lobby.turnsToTake = snapshot.TurnsToTake
+	lobby.underAttack = snapshot.UnderAttack
+	lobby.discardPile = snapshot.DiscardPile
+	lobby.targetedPlayer = snapshot.TargetedPlayer
+	lobby.nopeDeadline = snapshot.NopeDeadline
+	lobby.lastAction = CompletedAction{
+		Public:  snapshot.LastAction.Public,
+		Private: snapshot.LastAction.Private,
 	}
 
 	if snapshot.PendingAction != nil {
@@ -360,7 +351,7 @@ func DeserializeLobby(snapshot *LobbySnapshot) *Lobby {
 		lobby.nopeTimer = time.NewTimer(time.Until(snapshot.NopeDeadline))
 	}
 
-	for i, p := range snapshot.PlayersList {
+	for _, p := range snapshot.PlayersList {
 		newPlayer := &Player{
 			Hand:          p.Hand,
 			Id:            p.Id,
@@ -370,15 +361,15 @@ func DeserializeLobby(snapshot *LobbySnapshot) *Lobby {
 			IsAlive:       p.IsAlive,
 			IsOnline:      false,
 		}
-		lobby.playersList[i] = newPlayer
+		lobby.playersList = append(lobby.playersList, newPlayer)
 		lobby.playersMap[p.Id] = newPlayer
 	}
 
-	for i, a := range snapshot.ActionLog {
-		lobby.actionLog[i] = CompletedAction{
+	for _, a := range snapshot.ActionLog {
+		lobby.actionLog = append(lobby.actionLog, CompletedAction{
 			Public:  a.Public,
 			Private: a.Private,
-		}
+		})
 	}
 
 	return lobby

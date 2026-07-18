@@ -59,7 +59,7 @@ func TestSnapshotRoundTrip(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	restored := DeserializeLobby(&snap)
+	restored := DeserializeLobby(&snap, 1)
 
 	b2, err := json.Marshal(restored.SerializeLobby())
 	if err != nil {
@@ -78,7 +78,7 @@ func TestRestorePreservesGameState(t *testing.T) {
 	if err := json.Unmarshal(b, &snap); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	restored := DeserializeLobby(&snap)
+	restored := DeserializeLobby(&snap, 1)
 
 	for _, id := range []int{5, 9} {
 		p, ok := restored.playersMap[id]

@@ -49,7 +49,7 @@ func newCoordinator() Coordinator {
 type LocalCoordinator struct{}
 
 func (coord LocalCoordinator) Acquire(name string) (ownerAddr string, epoch int64, state []byte, err error) {
-	return cfg.AdvertiseAddr, 1, []byte{}, nil
+	return cfg.AdvertiseAddr, 1, nil, nil
 }
 
 func (coord LocalCoordinator) Lookup(name string) (ownerAddr string, err error) {

@@ -112,6 +112,7 @@ func pumpWS(dst, src *websocket.Conn, errc chan error) {
 	}
 }
 
+// creates a new lobby. DOES NOT try to revive/takeover an existing lobby
 func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	log.Println("Requested to create lobby")
 	if r.Method != http.MethodPost {
@@ -140,7 +141,7 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	addr, epoch, err := coordinator.Acquire(req.Name)
+	addr, epoch, _, err := coordinator.Acquire(req.Name)
 	if err != nil {
 		log.Printf("create lobby %q: acquire failed: %v", req.Name, err)
 		http.Error(w, "Internal error", http.StatusServiceUnavailable)
@@ -177,19 +178,30 @@ func resolveLobby(name string, create bool) (*Lobby, string, error) {
 	lobby, existsLocally := lobbies[name]
 	lobbiesMutex.Unlock()
 	var ownerAddr string
+	var stateBytes []byte
 	var epoch int64
 	var err error
 	if !existsLocally {
 		if !create {
 			ownerAddr, err = coordinator.Lookup(name)
 		} else {
-			ownerAddr, epoch, err = coordinator.Acquire(name)
+			ownerAddr, epoch, stateBytes, err = coordinator.Acquire(name)
 			if isOwnAddress(ownerAddr) {
 				lobbiesMutex.Lock()
 				defer lobbiesMutex.Unlock()
 				lobby, existsLocally = lobbies[name]
 				if !existsLocally {
-					lobby = NewLobby(name, epoch)
+					if stateBytes != nil {
+						var snapshot LobbySnapshot
+						if err := json.Unmarshal(stateBytes, &snapshot); err != nil {
+							log.Printf("Failed to deserialize snapshot for lobby %s: %v", name, err)
+							lobby = NewLobby(name, epoch)
+						} else {
+							lobby = DeserializeLobby(&snapshot, epoch)
+						}
+					} else {
+						lobby = NewLobby(name, epoch)
+					}
 					lobbies[name] = lobby
 					go lobby.run()
 					log.Printf("Lobby auto-created: %s", name)
