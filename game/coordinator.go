@@ -17,8 +17,10 @@ var coordinator Coordinator
 type Coordinator interface {
 	// tries to take ownership of a lobby, returning the address if it already exists
 	// in another node. it will return its own address if this node owns it.
-	// epoch incremented as a fencing token (the true owner will have the highest epoch)
-	Acquire(name string) (ownerAddr string, epoch int64, err error)
+	// epoch incremented as a fencing token (the true owner will have the highest epoch).
+	// on a win, state holds any snapshot left by a previous (crashed) owner so the new
+	// owner can resume the in-progress game; empty when there's nothing to inherit.
+	Acquire(name string) (ownerAddr string, epoch int64, state []byte, err error)
 	// finds which node owns this lobby without trying to claim it. it will return
 	// its own address if this node owns it, or "" if not found.
 	Lookup(name string) (ownerAddr string, err error)
@@ -46,8 +48,8 @@ func newCoordinator() Coordinator {
 // Local coordinator methods are mostly no-ops to ensure compatability with the RedisCoordinator
 type LocalCoordinator struct{}
 
-func (coord LocalCoordinator) Acquire(name string) (ownerAddr string, epoch int64, err error) {
-	return cfg.AdvertiseAddr, 1, nil
+func (coord LocalCoordinator) Acquire(name string) (ownerAddr string, epoch int64, state []byte, err error) {
+	return cfg.AdvertiseAddr, 1, []byte{}, nil
 }
 
 func (coord LocalCoordinator) Lookup(name string) (ownerAddr string, err error) {

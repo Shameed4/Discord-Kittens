@@ -23,37 +23,40 @@ func opCtx() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), redisOpTimeout)
 }
 
-// atomically tries to both claim a lobby and increment epoch number
-// keys[1] = lobby owner key, keys[2] = lobby epoch key
+// atomically tries to both claim a lobby and increment epoch number.
+// on a win it also returns any snapshot left by a previous (crashed) owner so the
+// new owner can resume the game; "" when there's nothing to inherit.
+// keys[1] = lobby owner key, keys[2] = lobby epoch key, keys[3] = lobby state key
 // argv[1] = node advertise address, argv[2] = ttl
+// reply = {ownerAddr, epoch, state}
 var acquireScript = redis.NewScript(`
 local ownerAddr = redis.call("GET", KEYS[1])
 if ownerAddr then
-	return {ownerAddr, redis.call("GET", KEYS[2]) or "0"}
+	return {ownerAddr, redis.call("GET", KEYS[2]) or "0", ""}
 end
 redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[2])
-return {ARGV[1], redis.call("INCR", KEYS[2])}
+return {ARGV[1], redis.call("INCR", KEYS[2]), redis.call("GET", KEYS[3]) or ""}
 `)
 
-func (coord RedisCoordinator) Acquire(name string) (ownerAddr string, epoch int64, err error) {
+func (coord RedisCoordinator) Acquire(name string) (ownerAddr string, epoch int64, state []byte, err error) {
 	ctx, cancel := opCtx()
 	defer cancel()
 	res, err := acquireScript.Run(ctx, coord.rdb,
-		[]string{lobbyOwnerKey(name), lobbyEpochKey(name)},
+		[]string{lobbyOwnerKey(name), lobbyEpochKey(name), lobbyStateKey(name)},
 		cfg.AdvertiseAddr, int(leaseTTL.Seconds()),
 	).Result()
 	if err != nil {
-		return "", 0, err
+		return "", 0, nil, err
 	}
 
-	// script returns {ownerAddr, epoch}
+	// script returns {ownerAddr, epoch, serialized lobby}
 	reply, ok := res.([]any)
-	if !ok || len(reply) != 2 {
-		return "", 0, fmt.Errorf("acquire script: unexpected reply %v", res)
+	if !ok || len(reply) != 3 {
+		return "", 0, nil, fmt.Errorf("acquire script: unexpected reply %v", res)
 	}
 	ownerAddr, ok = reply[0].(string)
 	if !ok {
-		return "", 0, fmt.Errorf("acquire script: unexpected owner %v", reply[0])
+		return "", 0, nil, fmt.Errorf("acquire script: unexpected owner %v", reply[0])
 	}
 	// INCR (won) yields an integer, GET (lost) yields a string
 	switch v := reply[1].(type) {
@@ -62,12 +65,16 @@ func (coord RedisCoordinator) Acquire(name string) (ownerAddr string, epoch int6
 	case string:
 		epoch, err = strconv.ParseInt(v, 10, 64)
 		if err != nil {
-			return "", 0, fmt.Errorf("acquire script: bad epoch %q: %w", v, err)
+			return "", 0, nil, fmt.Errorf("acquire script: bad epoch %q: %w", v, err)
 		}
 	default:
-		return "", 0, fmt.Errorf("acquire script: unexpected epoch %v", reply[1])
+		return "", 0, nil, fmt.Errorf("acquire script: unexpected epoch %v", reply[1])
 	}
-	return ownerAddr, epoch, nil
+	// reply[2] is the inherited snapshot ("" when there's nothing to resume)
+	if s, ok := reply[2].(string); ok && s != "" {
+		state = []byte(s)
+	}
+	return ownerAddr, epoch, state, nil
 }
 
 func (coord RedisCoordinator) Lookup(name string) (ownerAddr string, err error) {
