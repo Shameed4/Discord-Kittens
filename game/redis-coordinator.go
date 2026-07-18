@@ -5,9 +5,14 @@ import (
 	"fmt"
 	"log"
 	"strconv"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// redisOpTimeout bounds every coordinator Redis call so a dead/unreachable
+// Redis fails a lobby join quickly instead of wedging the HTTP/WS handler.
+const redisOpTimeout = 2 * time.Second
 
 type RedisCoordinator struct {
 	rdb *redis.Client
@@ -76,12 +81,15 @@ func (coord RedisCoordinator) Lookup(name string) (ownerAddr string, err error) 
 	return ownerAddr, err
 }
 
-// deletes the lobby key if the right lobby owner is requesting it
-// keys[1] = lobby owner key, keys[2] = lobby epoch key
+// deletes the lobby owner and state keys if the right lobby owner is requesting it.
+// dropping the state key marks this as a graceful teardown (reap / game over) so a
+// future re-creation of the same lobby name won't wrongly adopt a stale snapshot.
+// a crashed owner never runs this, so its state key survives (TTL) for adoption.
+// keys[1] = lobby owner key, keys[2] = lobby epoch key, keys[3] = lobby state key
 // argv[1] = lobby epoch
 var releaseScript = redis.NewScript(`
 if redis.call("GET", KEYS[2]) == ARGV[1] then
-	return redis.call("DEL", KEYS[1])
+	return redis.call("DEL", KEYS[1], KEYS[3])
 end
 return 0
 `)
@@ -90,7 +98,7 @@ func (coord RedisCoordinator) Release(name string, epoch int64) {
 	ctx, cancel := opCtx()
 	defer cancel()
 	err := releaseScript.Run(ctx, coord.rdb,
-		[]string{lobbyOwnerKey(name), lobbyEpochKey(name)},
+		[]string{lobbyOwnerKey(name), lobbyEpochKey(name), lobbyStateKey(name)},
 		epoch).Err()
 	if err != nil {
 		log.Printf("release lobby %q: %v (lease will expire on its own)", name, err)
@@ -98,11 +106,12 @@ func (coord RedisCoordinator) Release(name string, epoch int64) {
 }
 
 // refreshes the key if the right lobby owner is requesting it
-// keys[1] = lobby owner key, keys[2] = lobby epoch key
-// argv[1] = node advertise address, argv[2] = lobby epoch, argv[3] = ttl
+// keys[1] = lobby owner key, keys[2] = lobby epoch key, keys[3] = lobby state key
+// argv[1] = node advertise address, argv[2] = lobby epoch, argv[3] = owner ttl, argv[4] = state ttl
 var refreshScript = redis.NewScript(`
 if redis.call("GET", KEYS[2]) == ARGV[2] then
 	redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[3])
+	redis.call("EXPIRE", KEYS[3], ARGV[4])
 	return 1
 end
 return 0
@@ -112,6 +121,40 @@ func (coord RedisCoordinator) Refresh(name string, epoch int64) (bool, error) {
 	ctx, cancel := opCtx()
 	defer cancel()
 	return refreshScript.Run(ctx, coord.rdb,
-		[]string{lobbyOwnerKey(name), lobbyEpochKey(name)},
-		cfg.AdvertiseAddr, epoch, int(leaseTTL.Seconds())).Bool()
+		[]string{lobbyOwnerKey(name), lobbyEpochKey(name), lobbyStateKey(name)},
+		cfg.AdvertiseAddr, epoch, int(leaseTTL.Seconds()), int(stateTTL.Seconds())).Bool()
+}
+
+// update the state stored by the lobby
+// keys[1] = lobby state key, keys[2] = lobby epoch key
+// argv[1] = lobby state, argv[2] = lobby epoch, argv[3] = state ttl
+var updateStateScript = redis.NewScript(`
+if redis.call("GET", KEYS[2]) == ARGV[2] then
+	redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[3])
+	return 1
+end
+return 0
+`)
+
+func (coord RedisCoordinator) UpdateState(name string, epoch int64, serializedLobby []byte) {
+	ctx, cancel := opCtx()
+	defer cancel()
+	err := updateStateScript.Run(ctx, coord.rdb,
+		[]string{lobbyStateKey(name), lobbyEpochKey(name)},
+		serializedLobby, epoch, int(stateTTL.Seconds())).Err()
+	if err != nil {
+		log.Printf("update lobby %q state: %v", name, err)
+	}
+}
+
+func lobbyOwnerKey(name string) string {
+	return fmt.Sprintf("lobby:%s:owner", name)
+}
+
+func lobbyEpochKey(name string) string {
+	return fmt.Sprintf("lobby:%s:epoch", name)
+}
+
+func lobbyStateKey(name string) string {
+	return fmt.Sprintf("lobby:%s:state", name)
 }

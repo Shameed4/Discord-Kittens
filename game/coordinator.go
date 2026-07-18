@@ -1,20 +1,16 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// redisOpTimeout bounds every coordinator Redis call so a dead/unreachable
-// Redis fails a lobby join quickly instead of wedging the HTTP/WS handler.
-const redisOpTimeout = 2 * time.Second
-
 // leaseTTL is how long a lobby ownership lease lives without a heartbeat renewal.
 const leaseTTL = 15 * time.Second
 const heartbeatInterval = leaseTTL / 3
+const stateTTL = 10 * time.Minute
 
 var coordinator Coordinator
 
@@ -30,6 +26,8 @@ type Coordinator interface {
 	Release(name string, epoch int64)
 	// refreshes lobby ttl
 	Refresh(name string, epoch int64) (success bool, err error)
+	// updates state of lobby
+	UpdateState(name string, epoch int64, serializedLobby []byte)
 }
 
 func newCoordinator() Coordinator {
@@ -56,17 +54,12 @@ func (coord LocalCoordinator) Lookup(name string) (ownerAddr string, err error) 
 	return "", nil
 }
 
-// intentional no ops
+// intentional no op
 func (coord LocalCoordinator) Release(name string, epoch int64) {}
 
 func (coord LocalCoordinator) Refresh(name string, epoch int64) (bool, error) {
 	return true, nil
 }
 
-func lobbyOwnerKey(name string) string {
-	return fmt.Sprintf("lobby:%s:owner", name)
-}
-
-func lobbyEpochKey(name string) string {
-	return fmt.Sprintf("lobby:%s:epoch", name)
-}
+// intentional no op
+func (coord LocalCoordinator) UpdateState(name string, epoch int64, serializedLobby []byte) {}
