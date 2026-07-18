@@ -76,7 +76,7 @@ func opCtx() (context.Context, context.CancelFunc) {
 
 // atomically tries to both claim a lobby and increment epoch number
 // keys[1] = lobby owner key, keys[2] = lobby epoch key
-// argv[1] = lobby advertise address, argv[2] = ttl
+// argv[1] = node advertise address, argv[2] = ttl
 var acquireScript = redis.NewScript(`
 local ownerAddr = redis.call("GET", KEYS[1])
 if ownerAddr then
@@ -155,10 +155,11 @@ func (coord RedisCoordinator) Release(name string, epoch int64) {
 
 // refreshes the key if the right lobby owner is requesting it
 // keys[1] = lobby owner key, keys[2] = lobby epoch key
-// argv[1] = lobby epoch, argv[2] = ttl
+// argv[1] = node advertise address, argv[2] = lobby epoch, argv[3] = ttl
 var refreshScript = redis.NewScript(`
-if redis.call("GET", KEYS[2]) == ARGV[1] then
-	return redis.call("EXPIRE", KEYS[1], ARGV[2])
+if redis.call("GET", KEYS[2]) == ARGV[2] then
+	redis.call("SET", KEYS[1], ARGV[1], "EX", ARGV[3])
+	return 1
 end
 return 0
 `)
@@ -168,7 +169,7 @@ func (coord RedisCoordinator) Refresh(name string, epoch int64) (bool, error) {
 	defer cancel()
 	return refreshScript.Run(ctx, coord.rdb,
 		[]string{lobbyOwnerKey(name), lobbyEpochKey(name)},
-		epoch, int(leaseTTL.Seconds())).Bool()
+		cfg.AdvertiseAddr, epoch, int(leaseTTL.Seconds())).Bool()
 }
 
 func lobbyOwnerKey(name string) string {
