@@ -249,4 +249,6 @@ func (lobby *Lobby) broadcastGameState() {
 			}
 		}
 	}
+	// send state to update redis cache
+	lobby.enqueueStateCache(lobby.SerializeLobby())
 }
