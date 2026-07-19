@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -240,9 +239,6 @@ type Lobby struct {
 	emptyTimer *time.Timer   // reap countdown; nil when not armed
 	done       chan struct{} // closed when run() exits so a racing joiner can detect a reaped lobby
 
-	stateCache           chan *LobbySnapshot // buffered channel of size 1 that replaces stale update state requests
-	stateCacheWriterDone chan struct{}       // closed when the writer goroutine exits
-
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
 	epoch       int64
@@ -377,53 +373,16 @@ func DeserializeLobby(snapshot *LobbySnapshot, epoch int64) *Lobby {
 
 func NewLobby(name string, epoch int64) *Lobby {
 	return &Lobby{
-		name:                 name,
-		playersList:          make([]*Player, 0),
-		playersMap:           make(map[int]*Player),
-		spectators:           make(map[int]*Spectator),
-		ActionQueue:          make(chan PlayerAction),
-		JoinQueue:            make(chan JoinRequest),
-		done:                 make(chan struct{}),
-		stateCache:           make(chan *LobbySnapshot, 1),
-		stateCacheWriterDone: make(chan struct{}),
-		turnState:            NotStarted,
-		nextId:               0,
-		epoch:                epoch,
-	}
-}
-
-// ensures that the most recent state update is the one that will be handed
-// off to the coordinator's state writer
-func (lobby *Lobby) enqueueStateCache(snap *LobbySnapshot) {
-	for {
-		select {
-		case lobby.stateCache <- snap:
-			return
-		default:
-			// replace the old state cache with the new one
-			select {
-			case <-lobby.stateCache:
-			default:
-			}
-		}
-	}
-}
-
-// reads from lobby cache
-func (lobby *Lobby) runStateCacheWriter() {
-	defer close(lobby.stateCacheWriterDone)
-	for {
-		select {
-		case <-lobby.done:
-			return
-		case snap := <-lobby.stateCache:
-			serialized, err := json.Marshal(snap)
-			if err != nil {
-				log.Printf("Error serializing lobby %s: %v", lobby.name, err)
-				continue
-			}
-			coordinator.UpdateState(lobby.name, lobby.epoch, serialized)
-		}
+		name:        name,
+		playersList: make([]*Player, 0),
+		playersMap:  make(map[int]*Player),
+		spectators:  make(map[int]*Spectator),
+		ActionQueue: make(chan PlayerAction),
+		JoinQueue:   make(chan JoinRequest),
+		done:        make(chan struct{}),
+		turnState:   NotStarted,
+		nextId:      0,
+		epoch:       epoch,
 	}
 }
 
@@ -667,10 +626,7 @@ func (lobby *Lobby) destroy() {
 		delete(lobbies, lobby.name)
 	}
 	lobbiesMutex.Unlock()
-	// ensure that all lobby state updates have been completed before releasing
-	// to prevent a lobby state from being written after destroying lobby
 	close(lobby.done)
-	<-lobby.stateCacheWriterDone
 	coordinator.Release(lobby.name, lobby.epoch)
 	log.Printf("Lobby reaped: %s", lobby.name)
 }
@@ -695,7 +651,6 @@ func (lobby *Lobby) destroyAndDisconnectPlayers() {
 func (lobby *Lobby) run() {
 	leaseLost := make(chan struct{})
 	go lobby.heartbeat(leaseLost)
-	go lobby.runStateCacheWriter()
 	for {
 		lobby.refreshEmptyTimer()
 

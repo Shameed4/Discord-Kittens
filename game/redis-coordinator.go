@@ -10,17 +10,20 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// redisOpTimeout bounds every coordinator Redis call so a dead/unreachable
+// redisOpTimeout bounds most coordinator Redis calls so a dead/unreachable
 // Redis fails a lobby join quickly instead of wedging the HTTP/WS handler.
 const redisOpTimeout = 2 * time.Second
+
+// state write is shorter because it happens on every action
+const redisStateWriteTimeout = 500 * time.Millisecond
 
 type RedisCoordinator struct {
 	rdb *redis.Client
 }
 
 // returns a context that gives up after a certain amount of time
-func opCtx() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), redisOpTimeout)
+func opCtx(timeout time.Duration) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), timeout)
 }
 
 // atomically tries to both claim a lobby and increment epoch number.
@@ -39,7 +42,7 @@ return {ARGV[1], redis.call("INCR", KEYS[2]), redis.call("GET", KEYS[3]) or ""}
 `)
 
 func (coord RedisCoordinator) Acquire(name string) (ownerAddr string, epoch int64, state []byte, err error) {
-	ctx, cancel := opCtx()
+	ctx, cancel := opCtx(redisOpTimeout)
 	defer cancel()
 	res, err := acquireScript.Run(ctx, coord.rdb,
 		[]string{lobbyOwnerKey(name), lobbyEpochKey(name), lobbyStateKey(name)},
@@ -78,7 +81,7 @@ func (coord RedisCoordinator) Acquire(name string) (ownerAddr string, epoch int6
 }
 
 func (coord RedisCoordinator) Lookup(name string) (ownerAddr string, err error) {
-	ctx, cancel := opCtx()
+	ctx, cancel := opCtx(redisOpTimeout)
 	defer cancel()
 	ownerAddr, err = coord.rdb.Get(ctx, lobbyOwnerKey(name)).Result()
 	// get returns a nil error if it doesn't exist, but that is a valid non-error case for us
@@ -102,7 +105,7 @@ return 0
 `)
 
 func (coord RedisCoordinator) Release(name string, epoch int64) {
-	ctx, cancel := opCtx()
+	ctx, cancel := opCtx(redisOpTimeout)
 	defer cancel()
 	err := releaseScript.Run(ctx, coord.rdb,
 		[]string{lobbyOwnerKey(name), lobbyEpochKey(name), lobbyStateKey(name)},
@@ -125,7 +128,7 @@ return 0
 `)
 
 func (coord RedisCoordinator) Refresh(name string, epoch int64) (bool, error) {
-	ctx, cancel := opCtx()
+	ctx, cancel := opCtx(redisOpTimeout)
 	defer cancel()
 	return refreshScript.Run(ctx, coord.rdb,
 		[]string{lobbyOwnerKey(name), lobbyEpochKey(name), lobbyStateKey(name)},
@@ -144,7 +147,7 @@ return 0
 `)
 
 func (coord RedisCoordinator) UpdateState(name string, epoch int64, serializedLobby []byte) {
-	ctx, cancel := opCtx()
+	ctx, cancel := opCtx(redisStateWriteTimeout)
 	defer cancel()
 	err := updateStateScript.Run(ctx, coord.rdb,
 		[]string{lobbyStateKey(name), lobbyEpochKey(name)},

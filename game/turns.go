@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 )
 
@@ -233,6 +235,13 @@ func (lobby *Lobby) sendError(playerIdx int, err string) {
 }
 
 func (lobby *Lobby) broadcastGameState() {
+	// send state to update redis cache
+	serialized, err := json.Marshal(lobby.SerializeLobby())
+	if err != nil {
+		log.Printf("Error serializing lobby state: %v", err)
+	} else {
+		coordinator.UpdateState(lobby.name, lobby.epoch, serialized)
+	}
 	for _, player := range lobby.playersMap {
 		if player.IsOnline {
 			lobby.sendTo(player.Id, lobby.getGameState(player.Id))
@@ -249,6 +258,4 @@ func (lobby *Lobby) broadcastGameState() {
 			}
 		}
 	}
-	// send state to update redis cache
-	lobby.enqueueStateCache(lobby.SerializeLobby())
 }
