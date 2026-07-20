@@ -2,6 +2,7 @@ import type { CardType, TurnState } from './game-enums';
 
 export interface GameState {
   playerId:       number;
+  lastAcked:      number;   // highest action seqNumber the server has processed for us
   turnId:         number;
   deckSize:       number;
   players:        PlayerState[];
