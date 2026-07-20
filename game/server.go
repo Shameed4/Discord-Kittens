@@ -26,6 +26,7 @@ type CreateLobbyRequest struct {
 
 type ActionRequest struct {
 	ActionStr string `json:"action"`
+	SeqNumber int    `json:"seqNumber"`
 
 	// optional fields
 	PlaceKittenIndex int    `json:"placeKittenIndex"` // for placing kittens
@@ -373,6 +374,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		var action = PlayerAction{
 			playerId:   playerId,
+			seqNumber:  actionRequest.SeqNumber,
 			actionType: actionType,
 
 			placeKittenIndex: actionRequest.PlaceKittenIndex,

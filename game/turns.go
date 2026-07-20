@@ -165,6 +165,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	res := lobby.baseStateFor(playerIdx)
 	player := lobby.playersMap[playerIdx]
 	res.Hand = cardSliceToStrings(player.Hand)
+	res.LastAcked = player.LastAcked
 
 	isPlayerTurn := lobby.currentPlayerId == playerIdx
 	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && isPlayerTurn {

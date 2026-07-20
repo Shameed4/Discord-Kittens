@@ -39,6 +39,14 @@ func (lobby *Lobby) receivePlayerAction(action PlayerAction) error {
 		// emitting a late Disconnect. Nothing to act on.
 		return nil
 	}
+
+	if action.seqNumber > 0 {
+		if action.seqNumber <= player.LastAcked {
+			return nil // already handled
+		}
+		player.LastAcked = action.seqNumber
+	}
+
 	name := player.Name
 	isPlayerTurn := action.playerId == lobby.currentPlayerId
 	switch action.actionType {

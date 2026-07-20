@@ -60,6 +60,7 @@ type Player struct {
 	Avatar        string // avatar image URL; empty when the player has none (client falls back to an emoji)
 	IsAlive       bool
 	IsOnline      bool
+	LastAcked     int
 
 	Send chan GameState
 }
@@ -71,6 +72,7 @@ type PlayerSnapshot struct {
 	Name          string
 	Avatar        string
 	IsAlive       bool
+	LastAcked     int
 }
 
 type PlayerGameState struct {
@@ -84,6 +86,7 @@ type PlayerGameState struct {
 
 type GameState struct {
 	PlayerId    int               `json:"playerId"`
+	LastAcked   int               `json:"lastAcked"`
 	TurnId      int               `json:"turnId"`
 	DeckSize    int               `json:"deckSize"`
 	Players     []PlayerGameState `json:"players"`
@@ -178,6 +181,7 @@ var actionTypeNames = map[string]ActionType{
 type PlayerAction struct {
 	playerId   int
 	actionType ActionType
+	seqNumber  int
 
 	// optional fields
 	placeKittenIndex int            // for placing kittens
@@ -305,6 +309,7 @@ func (lobby *Lobby) SerializeLobby() *LobbySnapshot {
 			Name:          p.Name,
 			Avatar:        p.Avatar,
 			IsAlive:       p.IsAlive,
+			LastAcked:     p.LastAcked,
 		}
 	}
 
@@ -356,6 +361,7 @@ func DeserializeLobby(snapshot *LobbySnapshot, epoch int64) *Lobby {
 			Avatar:        p.Avatar,
 			IsAlive:       p.IsAlive,
 			IsOnline:      false,
+			LastAcked:     p.LastAcked,
 		}
 		lobby.playersList = append(lobby.playersList, newPlayer)
 		lobby.playersMap[p.Id] = newPlayer
