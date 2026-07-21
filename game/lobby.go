@@ -633,12 +633,17 @@ func (lobby *Lobby) destroy() {
 	}
 	lobbiesMutex.Unlock()
 	close(lobby.done)
-	coordinator.Release(lobby.name, lobby.epoch)
+	coordinator.Delete(lobby.name, lobby.epoch)
 	log.Printf("Lobby reaped: %s", lobby.name)
 }
 
-// deletes this lobby and disconnects all websockets associated with it
-func (lobby *Lobby) destroyAndDisconnectPlayers() {
+func (lobby *Lobby) gracefullyShutdown() {
+	lobby.disconnectMembers()
+	close(lobby.done)
+	coordinator.Release(lobby.name, lobby.epoch)
+}
+
+func (lobby *Lobby) disconnectMembers() {
 	for _, player := range lobby.playersList {
 		if player.IsOnline {
 			player.IsOnline = false
@@ -650,8 +655,6 @@ func (lobby *Lobby) destroyAndDisconnectPlayers() {
 		close(spectator.Send)
 		delete(lobby.spectators, specId)
 	}
-
-	lobby.destroy()
 }
 
 func (lobby *Lobby) run() {
@@ -690,7 +693,12 @@ func (lobby *Lobby) run() {
 			}
 
 		case <-leaseLost:
-			lobby.destroyAndDisconnectPlayers()
+			lobby.disconnectMembers()
+			lobby.destroy()
+			return
+
+		case <-serverShutdownChannel:
+			lobby.gracefullyShutdown()
 			return
 		}
 	}

@@ -97,9 +97,32 @@ func (coord RedisCoordinator) Lookup(name string) (ownerAddr string, err error) 
 // a crashed owner never runs this, so its state key survives (TTL) for adoption.
 // keys[1] = lobby owner key, keys[2] = lobby epoch key, keys[3] = lobby state key
 // argv[1] = lobby epoch
-var releaseScript = redis.NewScript(`
+var deleteScript = redis.NewScript(`
 if redis.call("GET", KEYS[2]) == ARGV[1] then
 	return redis.call("DEL", KEYS[1], KEYS[3])
+end
+return 0
+`)
+
+func (coord RedisCoordinator) Delete(name string, epoch int64) {
+	ctx, cancel := opCtx(redisOpTimeout)
+	defer cancel()
+	err := deleteScript.Run(ctx, coord.rdb,
+		[]string{lobbyOwnerKey(name), lobbyEpochKey(name), lobbyStateKey(name)},
+		epoch).Err()
+	if err != nil {
+		log.Printf("delete lobby %q: %v (lease will expire on its own)", name, err)
+	}
+}
+
+// deletes this lobby's ownership without removing it's state to allow other lobbies
+// to gracefully take over. epoch incremented to prevent race with heartbeat
+// keys[1] = lobby owner key, keys[2] = lobby epoch key, keys[3] = lobby state key
+// argv[1] = lobby epoch
+var releaseScript = redis.NewScript(`
+if redis.call("GET", KEYS[2]) == ARGV[1] then
+	redis.call("INCR", KEYS[2])
+	return redis.call("DEL", KEYS[1])
 end
 return 0
 `)

@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -19,6 +24,12 @@ const (
 	writeWait  = 10 * time.Second
 )
 const proxyHeader = "X-Kittens-Proxied"
+
+var serverShutdownChannel = make(chan struct{})
+
+// errShuttingDown is returned by lobby resolution once graceful shutdown has
+// begun, so the node stops adopting new lobbies it's about to abandon.
+var errShuttingDown = errors.New("server shutting down")
 
 type CreateLobbyRequest struct {
 	Name string `json:"name"`
@@ -41,6 +52,11 @@ type ActionRequest struct {
 var (
 	lobbies      = make(map[string]*Lobby)
 	lobbiesMutex sync.Mutex
+
+	// lobbyWG keeps track of number of running lobbies
+	lobbyWG sync.WaitGroup
+	// shutting down decides whether to accept new lobbies
+	shuttingDown bool
 
 	upgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
@@ -153,6 +169,11 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		return
 	} else {
 		lobbiesMutex.Lock()
+		if shuttingDown {
+			lobbiesMutex.Unlock()
+			http.Error(w, "Server shutting down", http.StatusServiceUnavailable)
+			return
+		}
 		_, exists := lobbies[req.Name]
 		if exists {
 			lobbiesMutex.Unlock()
@@ -161,7 +182,9 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 		} else {
 			lobby := NewLobby(req.Name, epoch)
 			lobbies[req.Name] = lobby
-			go lobby.run()
+			lobbyWG.Go(func() {
+				lobby.run()
+			})
 		}
 		lobbiesMutex.Unlock()
 	}
@@ -192,6 +215,9 @@ func resolveLobby(name string, create bool) (*Lobby, string, error) {
 				defer lobbiesMutex.Unlock()
 				lobby, existsLocally = lobbies[name]
 				if !existsLocally {
+					if shuttingDown {
+						return nil, "", errShuttingDown
+					}
 					if stateBytes != nil {
 						var snapshot LobbySnapshot
 						if err := json.Unmarshal(stateBytes, &snapshot); err != nil {
@@ -204,7 +230,11 @@ func resolveLobby(name string, create bool) (*Lobby, string, error) {
 						lobby = NewLobby(name, epoch)
 					}
 					lobbies[name] = lobby
-					go lobby.run()
+					lobbyWG.Add(1)
+					go func() {
+						defer lobbyWG.Done()
+						lobby.run()
+					}()
 					log.Printf("Lobby auto-created: %s", name)
 				}
 			}
@@ -415,6 +445,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
 	if err := godotenv.Load("../.env"); err != nil {
 		log.Printf("No .env file loaded: %v", err)
 	}
@@ -428,5 +461,43 @@ func main() {
 	http.HandleFunc("/api/ws", handleWebSocket)
 	http.HandleFunc("/api/token", handleToken)
 
-	log.Fatal(http.ListenAndServe(":"+cfg.Port, nil))
+	srv := &http.Server{Addr: ":" + cfg.Port}
+	go func() {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("Shutdown signal received; draining lobbies")
+
+	// stops accepting new requests. srv.Shutdown waits for all HTTP requests
+	// to finish (but does not kill websocket connections).
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("http shutdown: %v", err)
+	}
+
+	// stop websocket connections from connecting (also preventing wait group error)
+	lobbiesMutex.Lock()
+	shuttingDown = true
+	lobbiesMutex.Unlock()
+
+	// Tell every lobby goroutine to release its lease (keeping state for failover)
+	// and disconnect its clients.
+	close(serverShutdownChannel)
+
+	// Wait for the handoffs, but don't hang forever if one wedges on Redis.
+	drained := make(chan struct{})
+	go func() {
+		lobbyWG.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+		log.Println("All lobbies handed off cleanly; exiting")
+	case <-time.After(10 * time.Second):
+		log.Println("Shutdown grace period elapsed; exiting with lobbies still draining")
+	}
 }

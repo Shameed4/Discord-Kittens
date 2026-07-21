@@ -25,6 +25,8 @@ type Coordinator interface {
 	// its own address if this node owns it, or "" if not found.
 	Lookup(name string) (ownerAddr string, err error)
 	// deletes the lobby so other nodes know it doesn't exist
+	Delete(name string, epoch int64)
+	// removes server lease without deleting lobby
 	Release(name string, epoch int64)
 	// refreshes lobby ttl
 	Refresh(name string, epoch int64) (success bool, err error)
@@ -56,12 +58,11 @@ func (coord LocalCoordinator) Lookup(name string) (ownerAddr string, err error) 
 	return "", nil
 }
 
-// intentional no op
-func (coord LocalCoordinator) Release(name string, epoch int64) {}
-
 func (coord LocalCoordinator) Refresh(name string, epoch int64) (bool, error) {
 	return true, nil
 }
 
-// intentional no op
+// intentional no ops
+func (coord LocalCoordinator) Delete(name string, epoch int64)                              {}
+func (coord LocalCoordinator) Release(name string, epoch int64)                             {}
 func (coord LocalCoordinator) UpdateState(name string, epoch int64, serializedLobby []byte) {}
