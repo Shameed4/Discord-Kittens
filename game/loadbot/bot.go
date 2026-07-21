@@ -4,6 +4,7 @@ import (
 	"log"
 	"math/rand"
 	"net/url"
+	"slices"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -12,12 +13,14 @@ import (
 )
 
 type bot struct {
-	target    string
-	lobby     string
-	userId    string
-	wantSeats int // start the game once this many players are seated
-	think     time.Duration
-	verbose   bool
+	target     string
+	lobby      string
+	userId     string
+	wantSeats  int // start the game once this many players are seated
+	think      time.Duration
+	playChance float64 // odds of playing a card instead of just drawing, on your turn
+	nopeChance float64 // odds of noping a pending action when holding a Nope
+	verbose    bool
 
 	seq int
 }
@@ -74,6 +77,11 @@ func (b *bot) session(conn *websocket.Conn) bool {
 		}
 		gotState = true
 
+		if st.Err != "" && b.verbose {
+			// a legal-move bug or a race — surface it, don't silently ignore
+			log.Printf("%s: server rejected action: %s", b.userId, st.Err)
+		}
+
 		act := b.decide(&st)
 		if act == nil {
 			continue
@@ -102,7 +110,8 @@ func jitter(d time.Duration) time.Duration {
 	return d/2 + time.Duration(rand.Int63n(int64(d/2)))
 }
 
-// makes a move. return nil to avoid making a move.
+// makes a move. return nil to avoid making a move. Every action it emits is a
+// legal move for the given state, so the server never has to reject it.
 func (b *bot) decide(st *wire.GameState) *wire.ActionRequest {
 	myTurn := st.TurnId == st.PlayerId
 
@@ -115,7 +124,20 @@ func (b *bot) decide(st *wire.GameState) *wire.ActionRequest {
 
 	case wire.TurnNormal:
 		if myTurn {
+			return b.playTurn(st)
+		}
+
+	case wire.TurnSeeingTheFuture:
+		if myTurn {
 			return &wire.ActionRequest{ActionStr: wire.ActionDrawCard}
+		}
+
+	case wire.TurnAlteringTheFuture:
+		if myTurn {
+			return &wire.ActionRequest{
+				ActionStr:        wire.ActionAlterFuture,
+				AlterFutureOrder: rand.Perm(min(3, st.DeckSize)),
+			}
 		}
 
 	case wire.TurnAwaitingKittenPlacement:
@@ -125,7 +147,145 @@ func (b *bot) decide(st *wire.GameState) *wire.ActionRequest {
 				PlaceKittenIndex: rand.Intn(st.DeckSize + 1),
 			}
 		}
+
+	case wire.TurnAwaitingFavor:
+		if st.TargetedPlayer == st.PlayerId && len(st.Hand) > 0 {
+			return &wire.ActionRequest{
+				ActionStr:    wire.ActionGiveFavor,
+				UseCardIndex: rand.Intn(len(st.Hand)),
+			}
+		}
+
+	case wire.TurnAwaitingDiscardTake:
+		if myTurn && len(st.DiscardOptions) > 0 {
+			return &wire.ActionRequest{
+				ActionStr:        wire.ActionTakeFromDiscard,
+				RequestedCardStr: st.DiscardOptions[rand.Intn(len(st.DiscardOptions))],
+			}
+		}
+
+	case wire.TurnAcceptingNopes:
+		return b.maybeNope(st)
 	}
 
 	return nil
+}
+
+// playTurn decides a Normal-state turn: sometimes play a card, otherwise draw.
+func (b *bot) playTurn(st *wire.GameState) *wire.ActionRequest {
+	if rand.Float64() < b.playChance {
+		if act := b.tryPlay(st); act != nil {
+			return act
+		}
+	}
+	return &wire.ActionRequest{ActionStr: wire.ActionDrawCard}
+}
+
+// tryPlay enumerates the legal card plays for the current hand and picks one at
+// random, or returns nil if the hand affords none. (5-combos are omitted: they
+// need a non-empty discard pile, whose size the Normal-state snapshot doesn't
+// expose, so we can't guarantee legality.)
+func (b *bot) tryPlay(st *wire.GameState) *wire.ActionRequest {
+	var cands []*wire.ActionRequest
+
+	targets := aliveOthers(st, false)
+	withCards := aliveOthers(st, true)
+
+	for i, c := range st.Hand {
+		switch c {
+		case wire.CardSkip, wire.CardAttack, wire.CardSeeTheFuture,
+			wire.CardAlterTheFuture, wire.CardShuffle, wire.CardDrawFromBottom:
+			cands = append(cands, &wire.ActionRequest{ActionStr: wire.ActionPlayCard, UseCardIndex: i})
+		case wire.CardTargetedAttack:
+			if len(targets) > 0 {
+				cands = append(cands, &wire.ActionRequest{
+					ActionStr: wire.ActionPlayCard, UseCardIndex: i, TargetedPlayer: pick(targets),
+				})
+			}
+		case wire.CardFavor:
+			if len(withCards) > 0 {
+				cands = append(cands, &wire.ActionRequest{
+					ActionStr: wire.ActionPlayCard, UseCardIndex: i, TargetedPlayer: pick(withCards),
+				})
+			}
+		}
+	}
+
+	cands = append(cands, comboCandidates(st, withCards)...)
+
+	if len(cands) == 0 {
+		return nil
+	}
+	return cands[rand.Intn(len(cands))]
+}
+
+// comboCandidates builds legal 2- and 3-combos: any card held 2+ (or 3+) times
+// is a matching combo, and it needs a live target holding cards to steal from.
+func comboCandidates(st *wire.GameState, withCards []int) []*wire.ActionRequest {
+	if len(withCards) == 0 {
+		return nil
+	}
+
+	byCard := map[string][]int{}
+	for i, c := range st.Hand {
+		byCard[c] = append(byCard[c], i)
+	}
+
+	var cands []*wire.ActionRequest
+	for _, idxs := range byCard {
+		if len(idxs) >= 2 {
+			cands = append(cands, &wire.ActionRequest{
+				ActionStr:      wire.ActionCombo,
+				ComboIndices:   []int{idxs[0], idxs[1]},
+				TargetedPlayer: pick(withCards),
+			})
+		}
+		if len(idxs) >= 3 {
+			cands = append(cands, &wire.ActionRequest{
+				ActionStr:        wire.ActionCombo,
+				ComboIndices:     []int{idxs[0], idxs[1], idxs[2]},
+				TargetedPlayer:   pick(withCards),
+				RequestedCardStr: wire.CardDefuse,
+			})
+		}
+	}
+	return cands
+}
+
+// maybeNope flips a pending action's nope state, at nopeChance odds, if we are
+// alive and holding a Nope.
+func (b *bot) maybeNope(st *wire.GameState) *wire.ActionRequest {
+	if rand.Float64() >= b.nopeChance || !meAlive(st) || !slices.Contains(st.Hand, wire.CardNope) {
+		return nil
+	}
+	return &wire.ActionRequest{ActionStr: wire.ActionPlayNope, WantNoped: !st.IsNoped}
+}
+
+// aliveOthers returns the ids of living players other than us; withCards limits
+// it to those still holding at least one card.
+func aliveOthers(st *wire.GameState, withCards bool) []int {
+	var ids []int
+	for _, p := range st.Players {
+		if p.Id == st.PlayerId || !p.IsAlive {
+			continue
+		}
+		if withCards && p.CardCount == 0 {
+			continue
+		}
+		ids = append(ids, p.Id)
+	}
+	return ids
+}
+
+func meAlive(st *wire.GameState) bool {
+	for _, p := range st.Players {
+		if p.Id == st.PlayerId {
+			return p.IsAlive
+		}
+	}
+	return false
+}
+
+func pick(ids []int) int {
+	return ids[rand.Intn(len(ids))]
 }

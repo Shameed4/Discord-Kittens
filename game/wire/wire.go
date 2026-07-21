@@ -66,6 +66,27 @@ const (
 	ActionRestartLobby    = "RESTART_LOBBY"
 )
 
+// card strings, mirroring Card.String() in cards.go
+const (
+	CardDefuse             = "DEFUSE"
+	CardExplodingKitten    = "EXPLODING_KITTEN"
+	CardSkip               = "SKIP"
+	CardAttack             = "ATTACK"
+	CardTargetedAttack     = "TARGETED_ATTACK"
+	CardTacocat            = "TACOCAT"
+	CardHairyPotatoCat     = "HAIRY_POTATO_CAT"
+	CardCattermelon        = "CATTERMELON"
+	CardRainbowRalphingCat = "RAINBOW_RALPHING_CAT"
+	CardRageCat            = "RAGE_CAT"
+	CardFeralCat           = "FERAL_CAT"
+	CardSeeTheFuture       = "SEE_THE_FUTURE"
+	CardAlterTheFuture     = "ALTER_THE_FUTURE"
+	CardShuffle            = "SHUFFLE"
+	CardDrawFromBottom     = "DRAW_FROM_BOTTOM"
+	CardFavor              = "FAVOR"
+	CardNope               = "NOPE"
+)
+
 // game states passed from server to client
 const (
 	TurnNotStarted              = "NOT_STARTED"
