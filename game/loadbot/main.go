@@ -1,10 +1,14 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -16,10 +20,23 @@ func main() {
 	think := flag.Duration("think", 150*time.Millisecond, "pause before each action, to pace play")
 	playChance := flag.Float64("playChance", 0.5, "odds [0-1] a bot plays a card instead of just drawing on its turn")
 	nopeChance := flag.Float64("nopeChance", 0.15, "odds [0-1] a bot nopes a pending action when holding a Nope")
+	duration := flag.Duration("duration", 0, "run for this long then stop cleanly (0 = run until Ctrl+C)")
+	restart := flag.Bool("restart", true, "restart each lobby after game over to sustain load")
 	verbose := flag.Bool("verbose", false, "log every action")
 	flag.Parse()
 
+	// Ctrl+C / SIGTERM, or the optional -duration, ends the run gracefully:
+	// bots stop reconnecting, close their sockets, and return.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if *duration > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, *duration)
+		defer cancel()
+	}
+
 	log.Printf("launching %d bots against %s (%d per lobby)", *numBots, *target, *perLobby)
+	start := time.Now()
 
 	var wg sync.WaitGroup
 	for i := 0; i < *numBots; i++ {
@@ -31,9 +48,11 @@ func main() {
 			think:      *think,
 			playChance: *playChance,
 			nopeChance: *nopeChance,
+			restart:    *restart,
 			verbose:    *verbose,
 		}
-		wg.Go(b.run)
+		wg.Go(func() { b.run(ctx) })
 	}
 	wg.Wait()
+	log.Printf("stopped after %s", time.Since(start).Round(time.Second))
 }

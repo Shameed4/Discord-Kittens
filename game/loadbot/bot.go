@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"math/rand"
 	"net/url"
@@ -20,6 +21,7 @@ type bot struct {
 	think      time.Duration
 	playChance float64 // odds of playing a card instead of just drawing, on your turn
 	nopeChance float64 // odds of noping a pending action when holding a Nope
+	restart    bool    // restart the lobby after game over to sustain load
 	verbose    bool
 
 	seq int
@@ -31,7 +33,7 @@ const (
 	maxBackoff = 5 * time.Second
 )
 
-func (b *bot) run() {
+func (b *bot) run(ctx context.Context) {
 	q := url.Values{}
 	q.Set("lobby", b.lobby)
 	q.Set("username", b.userId)
@@ -41,23 +43,57 @@ func (b *bot) run() {
 	wsURL := b.target + "/api/ws?" + q.Encode()
 
 	backoff := minBackoff
-	for {
+	for ctx.Err() == nil {
 		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 		if err != nil {
 			log.Printf("%s: dial failed: %v (retry in %s)", b.userId, err, backoff)
-			time.Sleep(jitter(backoff))
+			if sleepCtx(ctx, jitter(backoff)) {
+				return
+			}
 			backoff = min(backoff*2, maxBackoff)
 			continue
 		}
 
+		// close the socket when the run is cancelled; this unblocks the pending
+		// ReadJSON in session so the bot exits promptly instead of hanging on it.
+		stopWatch := make(chan struct{})
+		go func() {
+			select {
+			case <-ctx.Done():
+				conn.Close()
+			case <-stopWatch:
+			}
+		}()
+
 		// a session that reads at least once counts as a real connection, so
 		// reset backoff; a session that dies immediately keeps escalating it.
-		if b.session(conn) {
+		real := b.session(conn)
+		close(stopWatch)
+
+		if ctx.Err() != nil {
+			return
+		}
+		if real {
 			backoff = minBackoff
 		}
 		log.Printf("%s: disconnected, reconnecting in %s", b.userId, backoff)
-		time.Sleep(jitter(backoff))
+		if sleepCtx(ctx, jitter(backoff)) {
+			return
+		}
 		backoff = min(backoff*2, maxBackoff)
+	}
+}
+
+// sleepCtx waits for d, or returns early if ctx is cancelled first. Reports
+// true when it was cut short by cancellation, so callers can bail out.
+func sleepCtx(ctx context.Context, d time.Duration) bool {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return true
+	case <-t.C:
+		return false
 	}
 }
 
@@ -166,6 +202,11 @@ func (b *bot) decide(st *wire.GameState) *wire.ActionRequest {
 
 	case wire.TurnAcceptingNopes:
 		return b.maybeNope(st)
+
+	case wire.TurnGameOver:
+		if b.restart && st.PlayerId == 0 {
+			return &wire.ActionRequest{ActionStr: wire.ActionRestartLobby}
+		}
 	}
 
 	return nil
