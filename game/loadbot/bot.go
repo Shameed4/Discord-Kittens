@@ -22,6 +22,12 @@ type bot struct {
 	seq int
 }
 
+// backoff bounds when reconecting
+const (
+	minBackoff = 250 * time.Millisecond
+	maxBackoff = 5 * time.Second
+)
+
 func (b *bot) run() {
 	q := url.Values{}
 	q.Set("lobby", b.lobby)
@@ -31,19 +37,42 @@ func (b *bot) run() {
 	q.Set("create", "1")
 	wsURL := b.target + "/api/ws?" + q.Encode()
 
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		log.Printf("%s: dial failed: %v", b.userId, err)
-		return
+	backoff := minBackoff
+	for {
+		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		if err != nil {
+			log.Printf("%s: dial failed: %v (retry in %s)", b.userId, err, backoff)
+			time.Sleep(jitter(backoff))
+			backoff = min(backoff*2, maxBackoff)
+			continue
+		}
+
+		// a session that reads at least once counts as a real connection, so
+		// reset backoff; a session that dies immediately keeps escalating it.
+		if b.session(conn) {
+			backoff = minBackoff
+		}
+		log.Printf("%s: disconnected, reconnecting in %s", b.userId, backoff)
+		time.Sleep(jitter(backoff))
+		backoff = min(backoff*2, maxBackoff)
 	}
+}
+
+// session drives one connection until it errors. returns true if the
+// connection ever delivered a state (i.e. it was a real, working session).
+func (b *bot) session(conn *websocket.Conn) bool {
 	defer conn.Close()
 
+	gotState := false
 	for {
 		var st wire.GameState
 		if err := conn.ReadJSON(&st); err != nil {
-			log.Printf("%s: read ended: %v", b.userId, err)
-			return
+			if b.verbose {
+				log.Printf("%s: read ended: %v", b.userId, err)
+			}
+			return gotState
 		}
+		gotState = true
 
 		act := b.decide(&st)
 		if act == nil {
@@ -56,13 +85,21 @@ func (b *bot) run() {
 		b.seq++
 		act.SeqNumber = b.seq
 		if err := conn.WriteJSON(act); err != nil {
-			log.Printf("%s: write failed: %v", b.userId, err)
-			return
+			if b.verbose {
+				log.Printf("%s: write failed: %v", b.userId, err)
+			}
+			return gotState
 		}
 		if b.verbose {
 			log.Printf("%s (lobby %s, seat %d): %s seq=%d", b.userId, b.lobby, st.PlayerId, act.ActionStr, b.seq)
 		}
 	}
+}
+
+// jitter spreads reconnect storms so a killed node's bots don't redial in
+// lockstep. returns d scaled by a random factor in [0.5, 1.0).
+func jitter(d time.Duration) time.Duration {
+	return d/2 + time.Duration(rand.Int63n(int64(d/2)))
 }
 
 // makes a move. return nil to avoid making a move.
