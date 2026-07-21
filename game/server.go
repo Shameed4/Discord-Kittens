@@ -15,6 +15,8 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
+
+	"game/wire"
 )
 
 const (
@@ -35,19 +37,7 @@ type CreateLobbyRequest struct {
 	Name string `json:"name"`
 }
 
-type ActionRequest struct {
-	ActionStr string `json:"action"`
-	SeqNumber int    `json:"seqNumber"`
-
-	// optional fields
-	PlaceKittenIndex int    `json:"placeKittenIndex"` // for placing kittens
-	UseCardIndex     int    `json:"useCardIndex"`     // card that you place
-	AlterFutureOrder []int  `json:"alterFutureOrder"` // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
-	TargetedPlayer   int    `json:"targetedPlayer"`   // player being targeted
-	ComboIndices     []int  `json:"comboIndices"`     // list of cards used for combo
-	RequestedCardStr string `json:"requestedCard"`    // card requested for combo
-	WantNoped        bool   `json:"wantNoped"`        // for PLAY_NOPE: true = nope, false = yup
-}
+type ActionRequest = wire.ActionRequest
 
 var (
 	lobbies      = make(map[string]*Lobby)

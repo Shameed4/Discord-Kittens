@@ -6,6 +6,8 @@ import (
 	"log"
 	"slices"
 	"time"
+
+	"game/wire"
 )
 
 type TurnState int
@@ -30,23 +32,23 @@ const emptyLobbyTTL = 60 * time.Second
 func (t TurnState) String() string {
 	switch t {
 	case NotStarted:
-		return "NOT_STARTED"
+		return wire.TurnNotStarted
 	case Normal:
-		return "NORMAL"
+		return wire.TurnNormal
 	case GameOver:
-		return "GAME_OVER"
+		return wire.TurnGameOver
 	case AwaitingKittenPlacement:
-		return "AWAITING_KITTEN_PLACEMENT"
+		return wire.TurnAwaitingKittenPlacement
 	case SeeingTheFuture:
-		return "SEEING_THE_FUTURE"
+		return wire.TurnSeeingTheFuture
 	case AlteringTheFuture:
-		return "ALTERING_THE_FUTURE"
+		return wire.TurnAlteringTheFuture
 	case AwaitingFavor:
-		return "AWAITING_FAVOR"
+		return wire.TurnAwaitingFavor
 	case AwaitingDiscardTake:
-		return "AWAITING_DISCARD_TAKE"
+		return wire.TurnAwaitingDiscardTake
 	case AcceptingNopes:
-		return "ACCEPTING_NOPES"
+		return wire.TurnAcceptingNopes
 	default:
 		return "UNKNOWN"
 	}
@@ -75,37 +77,8 @@ type PlayerSnapshot struct {
 	LastAcked     int
 }
 
-type PlayerGameState struct {
-	Id        int    `json:"id"`
-	Name      string `json:"name"`
-	Avatar    string `json:"avatar"`
-	CardCount int    `json:"cardCount"`
-	IsAlive   bool   `json:"isAlive"`
-	IsOnline  bool   `json:"isOnline"`
-}
-
-type GameState struct {
-	PlayerId    int               `json:"playerId"`
-	LastAcked   int               `json:"lastAcked"`
-	TurnId      int               `json:"turnId"`
-	DeckSize    int               `json:"deckSize"`
-	Players     []PlayerGameState `json:"players"`
-	TurnState   string            `json:"turnState"`
-	Hand        []string          `json:"hand"`
-	InProgress  bool              `json:"inProgress"`
-	UnderAttack bool              `json:"underAttack"`
-	TurnsToTake int               `json:"turnsToTake"`
-	IsSpectator bool              `json:"isSpectator"` // true for watch-only clients that joined mid-game
-
-	Future         []string `json:"future,omitempty"`         // for see/alter the future
-	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
-	TargetedPlayer int      `json:"targetedPlayer"`           // for actions that require another player's response
-	IsNoped        bool     `json:"isNoped,omitempty"`        // indicates whether pending action is noped
-	NopeDeadline   int64    `json:"nopeDeadline,omitempty"`   // unix ms when the nope window closes
-	LastAction     string   `json:"lastAction,omitempty"`
-	Log            []string `json:"log,omitempty"`
-	Err            string   `json:"err,omitempty"`
-}
+type PlayerGameState = wire.PlayerGameState
+type GameState = wire.GameState
 
 // CompletedAction holds the description of the most recent game event.
 // Private overrides Public for specific players (e.g., to reveal what card was stolen from them).
@@ -164,18 +137,18 @@ const (
 )
 
 var actionTypeNames = map[string]ActionType{
-	"START_GAME":        StartGame,
-	"PLAY_CARD":         PlayCard,
-	"DRAW_CARD":         DrawCard,
-	"PLACE_KITTEN":      PlaceKitten,
-	"DISCONNECT":        Disconnect,
-	"ALTER_FUTURE":      AlterFuture,
-	"GIVE_FAVOR":        GiveFavor,
-	"COMBO":             Combo,
-	"TAKE_FROM_DISCARD": TakeFromDiscard,
-	"PLAY_NOPE":         PlayNope,
-	"RANDOMIZE_ORDER":   RandomizeOrder,
-	"RESTART_LOBBY":     RestartLobby,
+	wire.ActionStartGame:       StartGame,
+	wire.ActionPlayCard:        PlayCard,
+	wire.ActionDrawCard:        DrawCard,
+	wire.ActionPlaceKitten:     PlaceKitten,
+	wire.ActionDisconnect:      Disconnect,
+	wire.ActionAlterFuture:     AlterFuture,
+	wire.ActionGiveFavor:       GiveFavor,
+	wire.ActionCombo:           Combo,
+	wire.ActionTakeFromDiscard: TakeFromDiscard,
+	wire.ActionPlayNope:        PlayNope,
+	wire.ActionRandomizeOrder:  RandomizeOrder,
+	wire.ActionRestartLobby:    RestartLobby,
 }
 
 type PlayerAction struct {
