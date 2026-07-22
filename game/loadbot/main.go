@@ -38,6 +38,8 @@ func main() {
 	log.Printf("launching %d bots against %s (%d per lobby)", *numBots, *target, *perLobby)
 	start := time.Now()
 
+	// one metrics struct per bot, each written only by its own goroutine
+	mets := make([]botMetrics, *numBots)
 	var wg sync.WaitGroup
 	for i := 0; i < *numBots; i++ {
 		b := bot{
@@ -50,9 +52,10 @@ func main() {
 			nopeChance: *nopeChance,
 			restart:    *restart,
 			verbose:    *verbose,
+			m:          &mets[i],
 		}
 		wg.Go(func() { b.run(ctx) })
 	}
 	wg.Wait()
-	log.Printf("stopped after %s", time.Since(start).Round(time.Second))
+	report(mets, time.Since(start), *numBots, *perLobby)
 }

@@ -24,7 +24,9 @@ type bot struct {
 	restart    bool    // restart the lobby after game over to sustain load
 	verbose    bool
 
-	seq int
+	m         *botMetrics
+	seq       int
+	prevState string // last turn state seen, for game-over edge detection
 }
 
 // backoff bounds when reconecting
@@ -101,7 +103,9 @@ func sleepCtx(ctx context.Context, d time.Duration) bool {
 // connection ever delivered a state (i.e. it was a real, working session).
 func (b *bot) session(conn *websocket.Conn) bool {
 	defer conn.Close()
+	b.m.connects++
 
+	inflight := map[int]time.Time{} // seq -> send time, cleared when acked
 	gotState := false
 	for {
 		var st wire.GameState
@@ -112,6 +116,21 @@ func (b *bot) session(conn *websocket.Conn) bool {
 			return gotState
 		}
 		gotState = true
+
+		// record round-trip latency for any of our actions this state acks
+		for seq, sent := range inflight {
+			if seq <= st.LastAcked {
+				b.m.latencies = append(b.m.latencies, time.Since(sent))
+				delete(inflight, seq)
+			}
+		}
+
+		// count a finished game once per lobby: seat 0 owns the tally, and we
+		// only count the transition into GAME_OVER, not every re-broadcast of it
+		if st.PlayerId == 0 && st.TurnState == wire.TurnGameOver && b.prevState != wire.TurnGameOver {
+			b.m.games++
+		}
+		b.prevState = st.TurnState
 
 		if st.Err != "" && b.verbose {
 			// a legal-move bug or a race — surface it, don't silently ignore
@@ -128,12 +147,14 @@ func (b *bot) session(conn *websocket.Conn) bool {
 		}
 		b.seq++
 		act.SeqNumber = b.seq
+		inflight[b.seq] = time.Now()
 		if err := conn.WriteJSON(act); err != nil {
 			if b.verbose {
 				log.Printf("%s: write failed: %v", b.userId, err)
 			}
 			return gotState
 		}
+		b.m.actions++
 		if b.verbose {
 			log.Printf("%s (lobby %s, seat %d): %s seq=%d", b.userId, b.lobby, st.PlayerId, act.ActionStr, b.seq)
 		}
