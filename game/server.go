@@ -215,6 +215,7 @@ func resolveLobby(name string, create bool) (*Lobby, string, error) {
 							lobby = NewLobby(name, epoch)
 						} else {
 							lobby = DeserializeLobby(&snapshot, epoch)
+							failoversTotal.Inc()
 						}
 					} else {
 						lobby = NewLobby(name, epoch)
@@ -450,6 +451,7 @@ func main() {
 	http.HandleFunc("/api/lobby", handleCreateLobby)
 	http.HandleFunc("/api/ws", handleWebSocket)
 	http.HandleFunc("/api/token", handleToken)
+	registerMetricsRoutes()
 
 	srv := &http.Server{Addr: ":" + cfg.Port}
 	go func() {

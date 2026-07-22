@@ -652,6 +652,7 @@ func (lobby *Lobby) run() {
 			if err := lobby.receivePlayerAction(actionReq); err != nil {
 				lobby.sendError(actionReq.playerId, err.Error())
 			} else {
+				actionsTotal.Inc()
 				lobby.broadcastGameState()
 			}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"slices"
+	"time"
 )
 
 const maxLogEntries = 200
@@ -237,11 +238,13 @@ func (lobby *Lobby) sendError(playerIdx int, err string) {
 
 func (lobby *Lobby) broadcastGameState() {
 	// send state to update redis cache
+	start := time.Now()
 	serialized, err := json.Marshal(lobby.SerializeLobby())
 	if err != nil {
 		log.Printf("Error serializing lobby state: %v", err)
 	} else {
 		coordinator.UpdateState(lobby.name, lobby.epoch, serialized)
+		snapshotWriteDuration.Observe(time.Since(start).Seconds())
 	}
 	for _, player := range lobby.playersMap {
 		if player.IsOnline {
