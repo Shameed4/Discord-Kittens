@@ -27,7 +27,16 @@ type bot struct {
 	m         *botMetrics
 	seq       int
 	prevState string // last turn state seen, for game-over edge detection
+
+	// orphan tracking (all written only by this bot's goroutine)
+	curSeat       int       // this bot's seat in the current state (-1 until known)
+	inProgress    bool      // is my current game mid-flight (not lobby, not over)?
+	lastStateAt   time.Time // when the last state arrived, to spot a stall
+	countedOrphan bool      // latch so a lost game is counted at most once
 }
+
+// amount of time to wait before lobby is considered dead
+const orphanTimeout = 30 * time.Second
 
 // backoff bounds when reconecting
 const (
@@ -75,6 +84,11 @@ func (b *bot) run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// if session ends bc lobby took too long to count an action, we count it as orphaned
+		if b.curSeat == 0 && b.inProgress && !b.countedOrphan && time.Since(b.lastStateAt) >= orphanTimeout {
+			b.m.orphaned++
+			b.countedOrphan = true
+		}
 		if real {
 			backoff = minBackoff
 		}
@@ -108,6 +122,14 @@ func (b *bot) session(conn *websocket.Conn) bool {
 	inflight := map[int]time.Time{} // seq -> send time, cleared when acked
 	gotState := false
 	for {
+		// while a game is mid-flight, bound the wait for the next state so a
+		// silent (lost) game surfaces as a read error instead of blocking
+		// forever; otherwise wait indefinitely (lobby/game-over lulls are fine).
+		if b.inProgress {
+			conn.SetReadDeadline(time.Now().Add(orphanTimeout))
+		} else {
+			conn.SetReadDeadline(time.Time{})
+		}
 		var st wire.GameState
 		if err := conn.ReadJSON(&st); err != nil {
 			if b.verbose {
@@ -124,6 +146,21 @@ func (b *bot) session(conn *websocket.Conn) bool {
 				delete(inflight, seq)
 			}
 		}
+
+		// track progress for orphan detection: note when this state arrived,
+		// my seat, and whether the game is mid-flight (not lobby, not over)
+		b.lastStateAt = time.Now()
+		b.curSeat = st.PlayerId
+		inProg := st.TurnState != wire.TurnNotStarted && st.TurnState != wire.TurnGameOver
+
+		// count a started game once per lobby: seat 0 sees NotStarted -> playing.
+		// resets the orphan latch so this fresh game can be flagged if it stalls.
+		// gated on prevState==NotStarted so a mid-game reconnect isn't miscounted.
+		if st.PlayerId == 0 && b.prevState == wire.TurnNotStarted && inProg {
+			b.m.started++
+			b.countedOrphan = false
+		}
+		b.inProgress = inProg
 
 		// count a finished game once per lobby: seat 0 owns the tally, and we
 		// only count the transition into GAME_OVER, not every re-broadcast of it

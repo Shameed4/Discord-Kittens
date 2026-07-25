@@ -13,16 +13,20 @@ type botMetrics struct {
 	games     int             // completed games (counted once per lobby, by seat 0)
 	actions   int             // actions written to the server
 	latencies []time.Duration // per-action send -> ack round trip
+	started   int             // games that reached in-progress
+	orphaned  int             // in-progress games that went silent and never finished
 }
 
 // report aggregates every bot's metrics and prints a summary.
 func report(mets []botMetrics, elapsed time.Duration, numBots, perLobby int) {
-	var connects, games, actions int
+	var connects, games, actions, started, orphaned int
 	var lat []time.Duration
 	for i := range mets {
 		connects += mets[i].connects
 		games += mets[i].games
 		actions += mets[i].actions
+		started += mets[i].started
+		orphaned += mets[i].orphaned
 		lat = append(lat, mets[i].latencies...)
 	}
 	// every dial past the first per bot is a reconnect
@@ -34,6 +38,15 @@ func report(mets []botMetrics, elapsed time.Duration, numBots, perLobby int) {
 	log.Printf("bots:           %d (%d per lobby)", numBots, perLobby)
 	log.Printf("connections:    %d (reconnects: %d)", connects, reconnects)
 	log.Printf("games finished: %d", games)
+	// games survived: of the games that reached play, how many were never lost
+	// to a node death (an orphaned game went silent mid-flight and never
+	// recovered on a surviving node). the chaos-run target is 100%.
+	survived := started - orphaned
+	survivalPct := 100.0
+	if started > 0 {
+		survivalPct = float64(survived) / float64(started) * 100
+	}
+	log.Printf("games survived: %d/%d (%.1f%%)", survived, started, survivalPct)
 	log.Printf("actions:        %d (%.1f/s)", actions, rate)
 	if len(lat) > 0 {
 		sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
