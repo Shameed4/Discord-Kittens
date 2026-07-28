@@ -28,21 +28,33 @@ type bot struct {
 	seq       int
 	prevState string // last turn state seen, for game-over edge detection
 
-	// orphan tracking (all written only by this bot's goroutine)
-	curSeat       int       // this bot's seat in the current state (-1 until known)
-	inProgress    bool      // is my current game mid-flight (not lobby, not over)?
-	lastStateAt   time.Time // when the last state arrived, to spot a stall
-	countedOrphan bool      // latch so a lost game is counted at most once
+	// failover tracking (all written only by this bot's goroutine)
+	curSeat          int       // seat from the last state; only read once inProgress
+	inProgress       bool      // is my current game mid-flight (not lobby, not over)?
+	lastStateAt      time.Time // when the last state arrived, to spot a stall
+	flaggedOrphan    bool      // this game is currently written off as lost
+	downSince        time.Time // when my in-progress game lost its connection
+	awaitingRecovery bool      // waiting on the first state back after that drop
 }
-
-// amount of time to wait before lobby is considered dead
-const orphanTimeout = 30 * time.Second
 
 // backoff bounds when reconecting
 const (
 	minBackoff = 250 * time.Millisecond
 	maxBackoff = 5 * time.Second
 )
+
+// amount of time to wait before lobby is considered dead. the floor is leaseTTL
+// (nobody may adopt until the old owner's lease lapses) + maxBackoff (we could
+// be asleep when it does); the rest is slack for the redial and restore.
+const (
+	leaseTTL      = 15 * time.Second // keep in sync with coordinator.go
+	orphanTimeout = leaseTTL + maxBackoff + 10*time.Second
+)
+
+// gorilla's default waits 45s on a handshake, longer than the cluster needs to
+// rehome a lobby, so a stuck bot misses the window and writes off a game that
+// was coming back. fail fast and let backoff bring us round again.
+var dialer = &websocket.Dialer{HandshakeTimeout: 5 * time.Second}
 
 func (b *bot) run(ctx context.Context) {
 	q := url.Values{}
@@ -55,7 +67,7 @@ func (b *bot) run(ctx context.Context) {
 
 	backoff := minBackoff
 	for ctx.Err() == nil {
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+		conn, _, err := dialer.Dial(wsURL, nil)
 		if err != nil {
 			log.Printf("%s: dial failed: %v (retry in %s)", b.userId, err, backoff)
 			if sleepCtx(ctx, jitter(backoff)) {
@@ -84,10 +96,18 @@ func (b *bot) run(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		// if session ends bc lobby took too long to count an action, we count it as orphaned
-		if b.curSeat == 0 && b.inProgress && !b.countedOrphan && time.Since(b.lastStateAt) >= orphanTimeout {
+		// my game was mid-flight when the socket died: start the clock here, not
+		// on the last redial, so recovery covers the whole outage.
+		if b.inProgress && !b.awaitingRecovery {
+			b.downSince = time.Now()
+			b.awaitingRecovery = true
+		}
+		// if session ends bc lobby took too long to count an action, we count it
+		// as orphaned. a flag, not a verdict: if a state does turn up later,
+		// session() moves it to the stalled column instead.
+		if b.curSeat == 0 && b.inProgress && !b.flaggedOrphan && time.Since(b.lastStateAt) >= orphanTimeout {
 			b.m.orphaned++
-			b.countedOrphan = true
+			b.flaggedOrphan = true
 		}
 		if real {
 			backoff = minBackoff
@@ -147,6 +167,20 @@ func (b *bot) session(conn *websocket.Conn) bool {
 			}
 		}
 
+		// a state after a drop is the game talking again: that gap is the
+		// recovery, measured across the whole outage rather than the last redial.
+		if b.awaitingRecovery {
+			b.m.recoveries = append(b.m.recoveries, time.Since(b.downSince))
+			b.awaitingRecovery = false
+		}
+		// and if we'd already written this game off, it wasn't lost after all,
+		// just slow. move it out of the lost column so survival stays honest.
+		if b.flaggedOrphan {
+			b.m.orphaned--
+			b.m.stalled++
+			b.flaggedOrphan = false
+		}
+
 		// track progress for orphan detection: note when this state arrived,
 		// my seat, and whether the game is mid-flight (not lobby, not over)
 		b.lastStateAt = time.Now()
@@ -154,11 +188,9 @@ func (b *bot) session(conn *websocket.Conn) bool {
 		inProg := st.TurnState != wire.TurnNotStarted && st.TurnState != wire.TurnGameOver
 
 		// count a started game once per lobby: seat 0 sees NotStarted -> playing.
-		// resets the orphan latch so this fresh game can be flagged if it stalls.
 		// gated on prevState==NotStarted so a mid-game reconnect isn't miscounted.
 		if st.PlayerId == 0 && b.prevState == wire.TurnNotStarted && inProg {
 			b.m.started++
-			b.countedOrphan = false
 		}
 		b.inProgress = inProg
 

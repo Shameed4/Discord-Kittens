@@ -57,6 +57,9 @@ func isOwnAddress(addr string) bool {
 	return addr == cfg.AdvertiseAddr
 }
 
+// don't wait too long to connect to server... if it takes too long then server is probably dead
+var proxyDialer = &websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+
 // serves as a proxy connection between client and host node
 func proxyWebSocket(client *websocket.Conn, ownerAddr string, r *http.Request) {
 	target := url.URL{Scheme: "ws", Host: ownerAddr, Path: "/api/ws", RawQuery: r.URL.RawQuery}
@@ -64,7 +67,7 @@ func proxyWebSocket(client *websocket.Conn, ownerAddr string, r *http.Request) {
 	header := http.Header{}
 	header.Set(proxyHeader, "1") // loop guard
 
-	upstream, resp, err := websocket.DefaultDialer.Dial(target.String(), header)
+	upstream, resp, err := proxyDialer.Dial(target.String(), header)
 	if err != nil {
 		log.Printf("proxy dial to %s failed: %v", ownerAddr, err)
 		client.WriteMessage(websocket.CloseMessage,
