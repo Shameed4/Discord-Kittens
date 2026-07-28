@@ -6,6 +6,8 @@ import (
 	"log"
 	"slices"
 	"time"
+
+	"game/wire"
 )
 
 type TurnState int
@@ -30,23 +32,23 @@ const emptyLobbyTTL = 60 * time.Second
 func (t TurnState) String() string {
 	switch t {
 	case NotStarted:
-		return "NOT_STARTED"
+		return wire.TurnNotStarted
 	case Normal:
-		return "NORMAL"
+		return wire.TurnNormal
 	case GameOver:
-		return "GAME_OVER"
+		return wire.TurnGameOver
 	case AwaitingKittenPlacement:
-		return "AWAITING_KITTEN_PLACEMENT"
+		return wire.TurnAwaitingKittenPlacement
 	case SeeingTheFuture:
-		return "SEEING_THE_FUTURE"
+		return wire.TurnSeeingTheFuture
 	case AlteringTheFuture:
-		return "ALTERING_THE_FUTURE"
+		return wire.TurnAlteringTheFuture
 	case AwaitingFavor:
-		return "AWAITING_FAVOR"
+		return wire.TurnAwaitingFavor
 	case AwaitingDiscardTake:
-		return "AWAITING_DISCARD_TAKE"
+		return wire.TurnAwaitingDiscardTake
 	case AcceptingNopes:
-		return "ACCEPTING_NOPES"
+		return wire.TurnAcceptingNopes
 	default:
 		return "UNKNOWN"
 	}
@@ -60,46 +62,34 @@ type Player struct {
 	Avatar        string // avatar image URL; empty when the player has none (client falls back to an emoji)
 	IsAlive       bool
 	IsOnline      bool
+	LastAcked     int
 
 	Send chan GameState
 }
 
-type PlayerGameState struct {
-	Id        int    `json:"id"`
-	Name      string `json:"name"`
-	Avatar    string `json:"avatar"`
-	CardCount int    `json:"cardCount"`
-	IsAlive   bool   `json:"isAlive"`
-	IsOnline  bool   `json:"isOnline"`
+type PlayerSnapshot struct {
+	Hand          []Card
+	Id            int
+	DiscordUserId string
+	Name          string
+	Avatar        string
+	IsAlive       bool
+	LastAcked     int
 }
 
-type GameState struct {
-	PlayerId    int               `json:"playerId"`
-	TurnId      int               `json:"turnId"`
-	DeckSize    int               `json:"deckSize"`
-	Players     []PlayerGameState `json:"players"`
-	TurnState   string            `json:"turnState"`
-	Hand        []string          `json:"hand"`
-	InProgress  bool              `json:"inProgress"`
-	UnderAttack bool              `json:"underAttack"`
-	TurnsToTake int               `json:"turnsToTake"`
-	IsSpectator bool              `json:"isSpectator"` // true for watch-only clients that joined mid-game
+type PlayerGameState = wire.PlayerGameState
+type GameState = wire.GameState
 
-	Future         []string `json:"future,omitempty"`         // for see/alter the future
-	DiscardOptions []string `json:"discardOptions,omitempty"` // discard pile for 5 unique
-	TargetedPlayer int      `json:"targetedPlayer"`           // for actions that require another player's response
-	IsNoped        bool     `json:"isNoped,omitempty"`        // indicates whether pending action is noped
-	NopeDeadline   int64    `json:"nopeDeadline,omitempty"`   // unix ms when the nope window closes
-	LastAction     string   `json:"lastAction,omitempty"`
-	Log            []string `json:"log,omitempty"`
-	Err            string   `json:"err,omitempty"`
-}
-
-// LastAction holds the description of the most recent game event.
+// CompletedAction holds the description of the most recent game event.
 // Private overrides Public for specific players (e.g., to reveal what card was stolen from them).
-type LastAction struct {
+type CompletedAction struct {
 	Public  string
 	Private map[int]string // playerIdx -> personalized message
+}
+
+type CompletedActionSnapshot struct {
+	Public  string         `json:"public"`
+	Private map[int]string `json:"private"`
 }
 
 type JoinRequest struct {
@@ -147,23 +137,24 @@ const (
 )
 
 var actionTypeNames = map[string]ActionType{
-	"START_GAME":        StartGame,
-	"PLAY_CARD":         PlayCard,
-	"DRAW_CARD":         DrawCard,
-	"PLACE_KITTEN":      PlaceKitten,
-	"DISCONNECT":        Disconnect,
-	"ALTER_FUTURE":      AlterFuture,
-	"GIVE_FAVOR":        GiveFavor,
-	"COMBO":             Combo,
-	"TAKE_FROM_DISCARD": TakeFromDiscard,
-	"PLAY_NOPE":         PlayNope,
-	"RANDOMIZE_ORDER":   RandomizeOrder,
-	"RESTART_LOBBY":     RestartLobby,
+	wire.ActionStartGame:       StartGame,
+	wire.ActionPlayCard:        PlayCard,
+	wire.ActionDrawCard:        DrawCard,
+	wire.ActionPlaceKitten:     PlaceKitten,
+	wire.ActionDisconnect:      Disconnect,
+	wire.ActionAlterFuture:     AlterFuture,
+	wire.ActionGiveFavor:       GiveFavor,
+	wire.ActionCombo:           Combo,
+	wire.ActionTakeFromDiscard: TakeFromDiscard,
+	wire.ActionPlayNope:        PlayNope,
+	wire.ActionRandomizeOrder:  RandomizeOrder,
+	wire.ActionRestartLobby:    RestartLobby,
 }
 
 type PlayerAction struct {
 	playerId   int
 	actionType ActionType
+	seqNumber  int
 
 	// optional fields
 	placeKittenIndex int            // for placing kittens
@@ -188,6 +179,18 @@ type PendingNopeableAction struct {
 	isNoped        bool
 }
 
+type PendingNopeableActionSnapshot struct {
+	PlayerId   int        `json:"playerId"`
+	ActionType ActionType `json:"actionType"`
+
+	// optional fields
+	PlayedCard     Card `json:"playedCard"`     // for play card actions
+	ComboSize      int  `json:"comboSize"`      // for combo actions
+	TargetedPlayer int  `json:"targetedPlayer"` // player being targeted
+	RequestedCard  Card `json:"requestedCard"`  // card requested from 3 combo
+	IsNoped        bool `json:"isNoped"`
+}
+
 type Lobby struct {
 	name            string // map key in lobbies; lets the lobby delete itself when reaped
 	deck            []Card
@@ -201,8 +204,8 @@ type Lobby struct {
 	turnsToTake     int
 	underAttack     bool
 	discardPile     []Card
-	lastAction      LastAction
-	actionLog       []LastAction
+	lastAction      CompletedAction
+	actionLog       []CompletedAction
 
 	targetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
 
@@ -215,9 +218,139 @@ type Lobby struct {
 
 	ActionQueue chan PlayerAction
 	JoinQueue   chan JoinRequest
+	epoch       int64
 }
 
-func NewLobby(name string) *Lobby {
+type LobbySnapshot struct {
+	Name            string // map key in lobbies; lets the lobby delete itself when reaped
+	Deck            []Card
+	PlayersList     []PlayerSnapshot
+	NextId          int // single counter so player and spectator ids never collide
+	CurrentPlayerId int
+	TurnState       TurnState
+	LivingPlayers   int
+	TurnsToTake     int
+	UnderAttack     bool
+	DiscardPile     []Card
+	ActionLog       []CompletedActionSnapshot
+	LastAction      CompletedActionSnapshot
+
+	TargetedPlayer int // relevant for favor, targetedAttack, 2 and 3 card combos
+
+	PendingAction *PendingNopeableActionSnapshot // relevant when card is nopeable
+	NopeDeadline  time.Time                      // when the current nope window closes
+}
+
+func (lobby *Lobby) SerializeLobby() *LobbySnapshot {
+	snapshot := &LobbySnapshot{
+		Name:            lobby.name,
+		Deck:            lobby.deck,
+		PlayersList:     make([]PlayerSnapshot, len(lobby.playersList)),
+		NextId:          lobby.nextId,
+		CurrentPlayerId: lobby.currentPlayerId,
+		TurnState:       lobby.turnState,
+		LivingPlayers:   lobby.livingPlayers,
+		TurnsToTake:     lobby.turnsToTake,
+		UnderAttack:     lobby.underAttack,
+		DiscardPile:     lobby.discardPile,
+		TargetedPlayer:  lobby.targetedPlayer,
+		NopeDeadline:    lobby.nopeDeadline,
+		ActionLog:       make([]CompletedActionSnapshot, len(lobby.actionLog)),
+		LastAction: CompletedActionSnapshot{
+			Public:  lobby.lastAction.Public,
+			Private: lobby.lastAction.Private,
+		},
+	}
+
+	if lobby.pendingAction != nil {
+		snapshot.PendingAction = &PendingNopeableActionSnapshot{
+			PlayerId:       lobby.pendingAction.playerId,
+			ActionType:     lobby.pendingAction.actionType,
+			PlayedCard:     lobby.pendingAction.playedCard,
+			ComboSize:      lobby.pendingAction.comboSize,
+			TargetedPlayer: lobby.pendingAction.targetedPlayer,
+			RequestedCard:  lobby.pendingAction.requestedCard,
+			IsNoped:        lobby.pendingAction.isNoped,
+		}
+	}
+
+	for i, p := range lobby.playersList {
+		snapshot.PlayersList[i] = PlayerSnapshot{
+			Hand:          p.Hand,
+			Id:            p.Id,
+			DiscordUserId: p.DiscordUserId,
+			Name:          p.Name,
+			Avatar:        p.Avatar,
+			IsAlive:       p.IsAlive,
+			LastAcked:     p.LastAcked,
+		}
+	}
+
+	for i, a := range lobby.actionLog {
+		snapshot.ActionLog[i] = CompletedActionSnapshot{
+			Public:  a.Public,
+			Private: a.Private,
+		}
+	}
+	return snapshot
+}
+
+func DeserializeLobby(snapshot *LobbySnapshot, epoch int64) *Lobby {
+	lobby := NewLobby(snapshot.Name, epoch)
+	lobby.deck = snapshot.Deck
+	lobby.nextId = snapshot.NextId
+	lobby.currentPlayerId = snapshot.CurrentPlayerId
+	lobby.turnState = snapshot.TurnState
+	lobby.livingPlayers = snapshot.LivingPlayers
+	lobby.turnsToTake = snapshot.TurnsToTake
+	lobby.underAttack = snapshot.UnderAttack
+	lobby.discardPile = snapshot.DiscardPile
+	lobby.targetedPlayer = snapshot.TargetedPlayer
+	lobby.nopeDeadline = snapshot.NopeDeadline
+	lobby.lastAction = CompletedAction{
+		Public:  snapshot.LastAction.Public,
+		Private: snapshot.LastAction.Private,
+	}
+
+	if snapshot.PendingAction != nil {
+		lobby.pendingAction = &PendingNopeableAction{
+			playerId:       snapshot.PendingAction.PlayerId,
+			actionType:     snapshot.PendingAction.ActionType,
+			playedCard:     snapshot.PendingAction.PlayedCard,
+			comboSize:      snapshot.PendingAction.ComboSize,
+			targetedPlayer: snapshot.PendingAction.TargetedPlayer,
+			requestedCard:  snapshot.PendingAction.RequestedCard,
+			isNoped:        snapshot.PendingAction.IsNoped,
+		}
+		lobby.nopeTimer = time.NewTimer(time.Until(snapshot.NopeDeadline))
+	}
+
+	for _, p := range snapshot.PlayersList {
+		newPlayer := &Player{
+			Hand:          p.Hand,
+			Id:            p.Id,
+			DiscordUserId: p.DiscordUserId,
+			Name:          p.Name,
+			Avatar:        p.Avatar,
+			IsAlive:       p.IsAlive,
+			IsOnline:      false,
+			LastAcked:     p.LastAcked,
+		}
+		lobby.playersList = append(lobby.playersList, newPlayer)
+		lobby.playersMap[p.Id] = newPlayer
+	}
+
+	for _, a := range snapshot.ActionLog {
+		lobby.actionLog = append(lobby.actionLog, CompletedAction{
+			Public:  a.Public,
+			Private: a.Private,
+		})
+	}
+
+	return lobby
+}
+
+func NewLobby(name string, epoch int64) *Lobby {
 	return &Lobby{
 		name:        name,
 		playersList: make([]*Player, 0),
@@ -228,6 +361,29 @@ func NewLobby(name string) *Lobby {
 		done:        make(chan struct{}),
 		turnState:   NotStarted,
 		nextId:      0,
+		epoch:       epoch,
+	}
+}
+
+func (lobby *Lobby) heartbeat(leaseLost chan struct{}) {
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			success, err := coordinator.Refresh(lobby.name, lobby.epoch)
+			if err != nil {
+				log.Printf("heartbeat failed to connect to redis for lobby %s: %v", lobby.name, err)
+				continue
+			} else if !success {
+				log.Printf("heartbeat did not successfully renew for lobby %s", lobby.name)
+				close(leaseLost)
+				return
+			}
+		case <-lobby.done:
+			return
+		}
 	}
 }
 
@@ -450,10 +606,33 @@ func (lobby *Lobby) destroy() {
 	}
 	lobbiesMutex.Unlock()
 	close(lobby.done)
+	coordinator.Delete(lobby.name, lobby.epoch)
 	log.Printf("Lobby reaped: %s", lobby.name)
 }
 
+func (lobby *Lobby) gracefullyShutdown() {
+	lobby.disconnectMembers()
+	close(lobby.done)
+	coordinator.Release(lobby.name, lobby.epoch)
+}
+
+func (lobby *Lobby) disconnectMembers() {
+	for _, player := range lobby.playersList {
+		if player.IsOnline {
+			player.IsOnline = false
+			close(player.Send)
+		}
+	}
+
+	for specId, spectator := range lobby.spectators {
+		close(spectator.Send)
+		delete(lobby.spectators, specId)
+	}
+}
+
 func (lobby *Lobby) run() {
+	leaseLost := make(chan struct{})
+	go lobby.heartbeat(leaseLost)
 	for {
 		lobby.refreshEmptyTimer()
 
@@ -473,6 +652,7 @@ func (lobby *Lobby) run() {
 			if err := lobby.receivePlayerAction(actionReq); err != nil {
 				lobby.sendError(actionReq.playerId, err.Error())
 			} else {
+				actionsTotal.Inc()
 				lobby.broadcastGameState()
 			}
 
@@ -485,6 +665,15 @@ func (lobby *Lobby) run() {
 				lobby.destroy()
 				return
 			}
+
+		case <-leaseLost:
+			lobby.disconnectMembers()
+			lobby.destroy()
+			return
+
+		case <-serverShutdownChannel:
+			lobby.gracefullyShutdown()
+			return
 		}
 	}
 }
@@ -551,5 +740,5 @@ func (lobby *Lobby) resetToLobby(restarterId int) {
 		lobby.currentPlayerId = lobby.playersList[0].Id
 	}
 	lobby.actionLog = nil
-	lobby.recordAction(LastAction{Public: fmt.Sprintf("%s restarted the lobby", name)})
+	lobby.recordAction(CompletedAction{Public: fmt.Sprintf("%s restarted the lobby", name)})
 }

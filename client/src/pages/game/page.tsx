@@ -26,6 +26,10 @@ import {
   setupDiscordSdk,
 } from '../../discord/sdk';
 
+// An action as it goes on the wire: the caller-facing ActionRequest plus the
+// transport-assigned seqNumber (added by sendAction, not by callers).
+type OutboundAction = ActionRequest & { seqNumber: number };
+
 export default function GamePage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -35,10 +39,20 @@ export default function GamePage() {
   const autoCreate = !location.state?.lobbyName && Boolean(discordInstanceId);
 
   const ws = useRef<WebSocket | null>(null);
+  // Action reliability across the reconnect boundary: every action is numbered
+  // with a monotonic seq and kept in `outbox` until the server acks it (echoes
+  // lastAcked >= seq). On reconnect we replay the un-acked outbox; the server
+  // dedups by seq, so a move that landed pre-drop is a no-op and one that didn't
+  // lands now. Both refs survive reconnects and reset only on a hard unmount.
+  const lastSeq = useRef(0);
+  const outbox = useRef<Map<number, OutboundAction>>(new Map());
   const [gameState, setGameState] = useState<GameState | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>(
     ConnectionStatus.Connecting,
   );
+  // Reason string from a terminal close (e.g. the server's "Lobby not found"),
+  // shown alongside the Disconnected badge. Null while connecting/connected.
+  const [disconnectReason, setDisconnectReason] = useState<string | null>(null);
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [showRestartConfirm, setShowRestartConfirm] = useState(false);
 
@@ -57,6 +71,8 @@ export default function GamePage() {
     let cancelled = false; // set on unmount/leave so we stop auto-reconnecting
     let attempt = 0; // reconnect attempt counter, drives exponential backoff
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    // limit number of exponential backoff attempts
+    const maxReconnectAttempts = 8;
 
     const connect = async () => {
       // Wait for the Discord auth handshake to resolve so getUsername() returns
@@ -89,11 +105,22 @@ export default function GamePage() {
       ws.current = socket;
       socket.onopen = () => {
         attempt = 0; // successful connection — reset backoff
+        setDisconnectReason(null);
         setConnectionStatus(ConnectionStatus.Connected);
+        // replays unacked actions (JS maps are ordered by insertion so order is accurate)
+        for (const msg of outbox.current.values())
+          socket.send(JSON.stringify(msg));
       };
       socket.onmessage = (event) => {
         try {
-          setGameState(JSON.parse(event.data) as GameState);
+          const state = JSON.parse(event.data) as GameState;
+          // drop all acked actions
+          for (const seq of outbox.current.keys())
+            if (seq <= state.lastAcked) outbox.current.delete(seq);
+          // sets lastAcked when reloading
+          lastSeq.current = Math.max(lastSeq.current, state.lastAcked);
+
+          setGameState(state);
           setSelectedIndices([]);
         } catch (e) {
           console.error('Failed to parse game state:', e);
@@ -105,14 +132,20 @@ export default function GamePage() {
         // 1000: clean server close (our own quit, or a duplicate-tab takeover —
         //       another connection is now authoritative, so don't fight it).
         // 4000: server rejected the join (e.g. game in progress with no seat to
-        //       reclaim). Surface the reason and stop.
+        //       reclaim, or a missing lobby). Surface the reason and stop.
         if (event.code === 1000 || event.code === 4000) {
+          if (event.reason) setDisconnectReason(event.reason);
           setConnectionStatus(ConnectionStatus.Disconnected);
           return;
         }
 
         // Unexpected drop (network loss, code 1006, etc.) — reconnect with
         // exponential backoff capped at 15s, plus jitter to avoid thundering herd.
+        // Give up once we've exhausted the attempt budget without ever opening.
+        if (attempt >= maxReconnectAttempts) {
+          setConnectionStatus(ConnectionStatus.Disconnected);
+          return;
+        }
         const delay =
           Math.min(1000 * 2 ** attempt, 15000) + Math.random() * 300;
         attempt += 1;
@@ -134,8 +167,11 @@ export default function GamePage() {
   }, [lobbyName, autoCreate, navigate, discordInstanceId]);
 
   function sendAction(action: ActionRequest) {
+    const seqNumber = (lastSeq.current += 1);
+    const msg: OutboundAction = { ...action, seqNumber };
+    outbox.current.set(seqNumber, msg);
     if (ws.current?.readyState === WebSocket.OPEN)
-      ws.current.send(JSON.stringify(action));
+      ws.current.send(JSON.stringify(msg));
   }
 
   const handleLeave = () => navigate('/');
@@ -523,7 +559,10 @@ export default function GamePage() {
             right: 'calc(0.5rem + var(--sair))',
           }}
         >
-          {connectionStatus}
+          {disconnectReason &&
+            connectionStatus === ConnectionStatus.Disconnected
+            ? disconnectReason
+            : connectionStatus}
         </div>
       )}
 

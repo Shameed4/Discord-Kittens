@@ -1,15 +1,22 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/joho/godotenv"
+
+	"game/wire"
 )
 
 const (
@@ -18,33 +25,104 @@ const (
 	pingPeriod = 45 * time.Second
 	writeWait  = 10 * time.Second
 )
+const proxyHeader = "X-Kittens-Proxied"
+
+var serverShutdownChannel = make(chan struct{})
+
+// errShuttingDown is returned by lobby resolution once graceful shutdown has
+// begun, so the node stops adopting new lobbies it's about to abandon.
+var errShuttingDown = errors.New("server shutting down")
 
 type CreateLobbyRequest struct {
 	Name string `json:"name"`
 }
 
-type ActionRequest struct {
-	ActionStr string `json:"action"`
-
-	// optional fields
-	PlaceKittenIndex int    `json:"placeKittenIndex"` // for placing kittens
-	UseCardIndex     int    `json:"useCardIndex"`     // card that you place
-	AlterFutureOrder []int  `json:"alterFutureOrder"` // new order of first 3 cards (e.g., [2, 1, 0] to reverse)
-	TargetedPlayer   int    `json:"targetedPlayer"`   // player being targeted
-	ComboIndices     []int  `json:"comboIndices"`     // list of cards used for combo
-	RequestedCardStr string `json:"requestedCard"`    // card requested for combo
-	WantNoped        bool   `json:"wantNoped"`        // for PLAY_NOPE: true = nope, false = yup
-}
+type ActionRequest = wire.ActionRequest
 
 var (
 	lobbies      = make(map[string]*Lobby)
 	lobbiesMutex sync.Mutex
+
+	// lobbyWG keeps track of number of running lobbies
+	lobbyWG sync.WaitGroup
+	// shutting down decides whether to accept new lobbies
+	shuttingDown bool
 
 	upgrader = websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
 )
 
+func isOwnAddress(addr string) bool {
+	return addr == cfg.AdvertiseAddr
+}
+
+// don't wait too long to connect to server... if it takes too long then server is probably dead
+var proxyDialer = &websocket.Dialer{HandshakeTimeout: 5 * time.Second}
+
+// serves as a proxy connection between client and host node
+func proxyWebSocket(client *websocket.Conn, ownerAddr string, r *http.Request) {
+	target := url.URL{Scheme: "ws", Host: ownerAddr, Path: "/api/ws", RawQuery: r.URL.RawQuery}
+
+	header := http.Header{}
+	header.Set(proxyHeader, "1") // loop guard
+
+	upstream, resp, err := proxyDialer.Dial(target.String(), header)
+	if err != nil {
+		log.Printf("proxy dial to %s failed: %v", ownerAddr, err)
+		client.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(4000, "Could not reach lobby host"))
+		return
+	}
+	if resp != nil {
+		resp.Body.Close()
+	}
+	defer upstream.Close()
+
+	// The proxy is transparent: it forwards ping/pong across the hop rather than
+	// answering them, so the owner node's keepalive/liveness heartbeat reaches the
+	// real client end-to-end (and a dead client is detected there, not masked here).
+	forwardControl(client, upstream)
+
+	errc := make(chan error, 2)
+	go pumpWS(upstream, client, errc)
+	go pumpWS(client, upstream, errc)
+	<-errc
+}
+
+// relays all pings and pongs between the client and the upstream
+func forwardControl(client, upstream *websocket.Conn) {
+	client.SetPingHandler(func(data string) error {
+		return upstream.WriteControl(websocket.PingMessage, []byte(data), time.Now().Add(writeWait))
+	})
+	upstream.SetPingHandler(func(data string) error {
+		return client.WriteControl(websocket.PingMessage, []byte(data), time.Now().Add(writeWait))
+	})
+	client.SetPongHandler(func(data string) error {
+		return upstream.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(writeWait))
+	})
+	upstream.SetPongHandler(func(data string) error {
+		return client.WriteControl(websocket.PongMessage, []byte(data), time.Now().Add(writeWait))
+	})
+}
+
+// relays messages from src to dst, writing to error channel if an error occurs.
+func pumpWS(dst, src *websocket.Conn, errc chan error) {
+	for {
+		mt, data, err := src.ReadMessage()
+		if err != nil {
+			errc <- err
+			return
+		}
+		dst.SetWriteDeadline(time.Now().Add(writeWait))
+		if err := dst.WriteMessage(mt, data); err != nil {
+			errc <- err
+			return
+		}
+	}
+}
+
+// creates a new lobby. DOES NOT try to revive/takeover an existing lobby
 func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	log.Println("Requested to create lobby")
 	if r.Method != http.MethodPost {
@@ -64,41 +142,111 @@ func handleCreateLobby(w http.ResponseWriter, r *http.Request) {
 	}
 
 	lobbiesMutex.Lock()
-	defer lobbiesMutex.Unlock()
+	_, exists := lobbies[req.Name]
+	lobbiesMutex.Unlock()
 
 	// Check if lobby already exists
-	if _, exists := lobbies[req.Name]; exists {
+	if exists {
 		http.Error(w, "Lobby already exists", http.StatusConflict)
 		return
 	}
 
-	lobby := NewLobby(req.Name)
-	lobbies[req.Name] = lobby
-	go lobby.run()
+	addr, epoch, _, err := coordinator.Acquire(req.Name)
+	if err != nil {
+		log.Printf("create lobby %q: acquire failed: %v", req.Name, err)
+		http.Error(w, "Internal error", http.StatusServiceUnavailable)
+		return
+	} else if !isOwnAddress(addr) {
+		log.Printf("Tried to create lobby but it already exists in %s", addr)
+		http.Error(w, "Lobby already exists", http.StatusConflict)
+		return
+	} else {
+		lobbiesMutex.Lock()
+		if shuttingDown {
+			lobbiesMutex.Unlock()
+			http.Error(w, "Server shutting down", http.StatusServiceUnavailable)
+			return
+		}
+		_, exists := lobbies[req.Name]
+		if exists {
+			lobbiesMutex.Unlock()
+			http.Error(w, "Lobby already exists", http.StatusConflict)
+			return
+		} else {
+			lobby := NewLobby(req.Name, epoch)
+			lobbies[req.Name] = lobby
+			lobbyWG.Go(func() {
+				lobby.run()
+			})
+		}
+		lobbiesMutex.Unlock()
+	}
 
 	w.WriteHeader(http.StatusCreated)
 	w.Write([]byte(`{"status": "created"}`))
 	log.Printf("Lobby created: %s", req.Name)
 }
 
-// resolveLobby returns a live lobby for name, creating one when create is set
-// (atomically, so simultaneous joiners can't double-create the same lobby).
-// Caller must not hold lobbiesMutex. ok is false only when the lobby is absent
-// and create is false.
-func resolveLobby(name string, create bool) (*Lobby, bool) {
+// resolveLobby returns either a live lobby, the node that contains the live lobby, or
+// an error, depending on if the create flag is used and if the create flag is set.
+// the caller must not hold the lobbies mutex.
+func resolveLobby(name string, create bool) (*Lobby, string, error) {
 	lobbiesMutex.Lock()
-	defer lobbiesMutex.Unlock()
-	lobby, exists := lobbies[name]
-	if !exists {
+	lobby, existsLocally := lobbies[name]
+	lobbiesMutex.Unlock()
+	var ownerAddr string
+	var stateBytes []byte
+	var epoch int64
+	var err error
+	if !existsLocally {
 		if !create {
-			return nil, false
+			ownerAddr, err = coordinator.Lookup(name)
+		} else {
+			ownerAddr, epoch, stateBytes, err = coordinator.Acquire(name)
+			if isOwnAddress(ownerAddr) {
+				lobbiesMutex.Lock()
+				defer lobbiesMutex.Unlock()
+				lobby, existsLocally = lobbies[name]
+				if !existsLocally {
+					if shuttingDown {
+						return nil, "", errShuttingDown
+					}
+					if stateBytes != nil {
+						var snapshot LobbySnapshot
+						if err := json.Unmarshal(stateBytes, &snapshot); err != nil {
+							log.Printf("Failed to deserialize snapshot for lobby %s: %v", name, err)
+							lobby = NewLobby(name, epoch)
+						} else {
+							lobby = DeserializeLobby(&snapshot, epoch)
+							failoversTotal.Inc()
+						}
+					} else {
+						lobby = NewLobby(name, epoch)
+					}
+					lobbies[name] = lobby
+					lobbyWG.Add(1)
+					go func() {
+						defer lobbyWG.Done()
+						lobby.run()
+					}()
+					log.Printf("Lobby auto-created: %s", name)
+				}
+			}
 		}
-		lobby = NewLobby(name)
-		lobbies[name] = lobby
-		go lobby.run()
-		log.Printf("Lobby auto-created: %s", name)
 	}
-	return lobby, true
+	return lobby, ownerAddr, err
+}
+
+func sendRejectedResolveLobby(lobby *Lobby, ownerAddr string, err error, ws *websocket.Conn) bool {
+	if err != nil {
+		log.Printf("resolve lobby failed: %v", err)
+		ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Internal server error - please try again"))
+		return true
+	} else if lobby == nil && ownerAddr == "" {
+		ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Lobby not found - create it first"))
+		return true
+	}
+	return false
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request) {
@@ -110,16 +258,15 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Discord auto-join passes create=1 so the instance lobby is created on the
-	// fly; the website "join" flow omits it and still 404s on a missing lobby.
+	// fly; the website "join" flow omits it, so a missing lobby is rejected below.
 	create := r.URL.Query().Get("create") == "1"
 
-	lobby, ok := resolveLobby(lobbyName, create)
-	if !ok {
-		http.Error(w, "Lobby not found. Create it first.", http.StatusNotFound)
-		return
-	}
-
-	// upgrade the connection
+	// Upgrade before resolving the lobby. A pre-upgrade HTTP 404 reaches the
+	// browser only as a codeless 1006 close — the WebSocket API hides the status,
+	// so the client can't distinguish a bad lobby name from a network blip and
+	// retries forever. Upgrading first lets us reject with an application close
+	// code (4000) + reason the client can read and act on, matching the
+	// reaped-mid-join path below.
 	ws, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Println("Upgrade error:", err)
@@ -143,19 +290,34 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		Send:   gameStateChan,
 		Result: joinResultChan,
 	}
-	// Hand the join to the lobby goroutine. The lobby may have been reaped for
-	// inactivity between resolveLobby and now (notably during the WS upgrade);
-	// done is closed on reap, so re-resolve and retry instead of blocking
-	// forever on a dead goroutine's JoinQueue.
+
+	var (
+		lobby *Lobby
+		addr  string
+	)
 	for {
+		lobby, addr, err = resolveLobby(lobbyName, create)
+		if sendRejectedResolveLobby(lobby, addr, err, ws) {
+			return
+		}
+
+		if lobby == nil {
+			if r.Header.Get(proxyHeader) != "" {
+				ws.WriteMessage(websocket.CloseMessage,
+					websocket.FormatCloseMessage(4000, "Lobby owner unavailable"))
+				return
+			}
+			proxyWebSocket(ws, addr, r)
+			return
+		}
+
+		// Hand the join to the lobby goroutine. The lobby may have been reaped for
+		// inactivity between resolveLobby and now (notably during the WS upgrade);
+		// done is closed on reap, so re-resolve and retry instead of blocking
+		// forever on a dead goroutine's JoinQueue.
 		select {
 		case lobby.JoinQueue <- joinReq:
 		case <-lobby.done:
-			lobby, ok = resolveLobby(lobbyName, create)
-			if !ok {
-				ws.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4000, "Lobby not found"))
-				return
-			}
 			continue
 		}
 		break
@@ -236,6 +398,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 
 		var action = PlayerAction{
 			playerId:   playerId,
+			seqNumber:  actionRequest.SeqNumber,
 			actionType: actionType,
 
 			placeKittenIndex: actionRequest.PlaceKittenIndex,
@@ -255,7 +418,12 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			action.requestedCard = requestedCard
 		}
 
-		lobby.ActionQueue <- action
+		select {
+		case lobby.ActionQueue <- action:
+			continue
+		case <-lobby.done:
+			return
+		}
 	}
 
 	quitAction := PlayerAction{
@@ -263,24 +431,68 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 		actionType: Disconnect,
 		conn:       gameStateChan,
 	}
-	lobby.ActionQueue <- quitAction
+
+	select {
+	case lobby.ActionQueue <- quitAction:
+	case <-lobby.done:
+	}
 }
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, os.Interrupt)
+	defer stop()
+
 	if err := godotenv.Load("../.env"); err != nil {
 		log.Printf("No .env file loaded: %v", err)
 	}
 
+	cfg = LoadConfig()
+	coordinator = newCoordinator()
 	// Routes are served under /api so a single path prefix works across every
 	// environment: the Vite dev proxy, the Vercel rewrite, and the Discord
 	// activity URL mapping all forward /api verbatim (none of them strip it).
 	http.HandleFunc("/api/lobby", handleCreateLobby)
 	http.HandleFunc("/api/ws", handleWebSocket)
 	http.HandleFunc("/api/token", handleToken)
+	registerMetricsRoutes()
 
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
+	srv := &http.Server{Addr: ":" + cfg.Port}
+	go func() {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("Shutdown signal received; draining lobbies")
+
+	// stops accepting new requests. srv.Shutdown waits for all HTTP requests
+	// to finish (but does not kill websocket connections).
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("http shutdown: %v", err)
 	}
-	log.Fatal(http.ListenAndServe(":"+port, nil))
+
+	// stop websocket connections from connecting (also preventing wait group error)
+	lobbiesMutex.Lock()
+	shuttingDown = true
+	lobbiesMutex.Unlock()
+
+	// Tell every lobby goroutine to release its lease (keeping state for failover)
+	// and disconnect its clients.
+	close(serverShutdownChannel)
+
+	// Wait for the handoffs, but don't hang forever if one wedges on Redis.
+	drained := make(chan struct{})
+	go func() {
+		lobbyWG.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+		log.Println("All lobbies handed off cleanly; exiting")
+	case <-time.After(10 * time.Second):
+		log.Println("Shutdown grace period elapsed; exiting with lobbies still draining")
+	}
 }

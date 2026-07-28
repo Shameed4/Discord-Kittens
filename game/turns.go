@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
+	"time"
 )
 
 const maxLogEntries = 200
@@ -11,7 +14,7 @@ const spectatorPerspective = -1 // sentinel id used for getting game state for s
 
 // recordAction sets the most-recent action (for the banner) and appends it to
 // the append-only game log, trimming the log to the last maxLogEntries entries.
-func (lobby *Lobby) recordAction(a LastAction) {
+func (lobby *Lobby) recordAction(a CompletedAction) {
 	lobby.lastAction = a
 	lobby.actionLog = append(lobby.actionLog, a)
 	if len(lobby.actionLog) > maxLogEntries {
@@ -24,15 +27,15 @@ func (lobby *Lobby) resolveDrawnCard(player *Player, drawn Card, actionDesc stri
 		if defuseIndex := slices.Index(player.Hand, Defuse); defuseIndex != -1 {
 			lobby.discardCard(player, defuseIndex)
 			lobby.turnState = AwaitingKittenPlacement
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s %s and had to defuse an exploding kitten!", player.Name, actionDesc)})
+			lobby.recordAction(CompletedAction{Public: fmt.Sprintf("%s %s and had to defuse an exploding kitten!", player.Name, actionDesc)})
 		} else {
-			lobby.recordAction(LastAction{Public: fmt.Sprintf("%s %s and exploded!", player.Name, actionDesc)})
+			lobby.recordAction(CompletedAction{Public: fmt.Sprintf("%s %s and exploded!", player.Name, actionDesc)})
 			lobby.eliminatePlayer(player.Id)
 		}
 	} else {
 		player.Hand = append(player.Hand, drawn)
 		lobby.decreaseTurns()
-		lobby.recordAction(LastAction{Public: fmt.Sprintf("%s %s", player.Name, actionDesc)})
+		lobby.recordAction(CompletedAction{Public: fmt.Sprintf("%s %s", player.Name, actionDesc)})
 	}
 }
 
@@ -109,7 +112,7 @@ func (lobby *Lobby) assertPlayerExistsAndAlive(playerId int) error {
 
 // resolveAction picks the personalized message for a player, falling back to
 // the public one.
-func resolveAction(a LastAction, playerIdx int) string {
+func resolveAction(a CompletedAction, playerIdx int) string {
 	if msg, ok := a.Private[playerIdx]; ok {
 		return msg
 	}
@@ -163,6 +166,7 @@ func (lobby *Lobby) getGameState(playerIdx int) GameState {
 	res := lobby.baseStateFor(playerIdx)
 	player := lobby.playersMap[playerIdx]
 	res.Hand = cardSliceToStrings(player.Hand)
+	res.LastAcked = player.LastAcked
 
 	isPlayerTurn := lobby.currentPlayerId == playerIdx
 	if (lobby.turnState == SeeingTheFuture || lobby.turnState == AlteringTheFuture) && isPlayerTurn {
@@ -233,6 +237,15 @@ func (lobby *Lobby) sendError(playerIdx int, err string) {
 }
 
 func (lobby *Lobby) broadcastGameState() {
+	// send state to update redis cache
+	start := time.Now()
+	serialized, err := json.Marshal(lobby.SerializeLobby())
+	if err != nil {
+		log.Printf("Error serializing lobby state: %v", err)
+	} else {
+		coordinator.UpdateState(lobby.name, lobby.epoch, serialized)
+		snapshotWriteDuration.Observe(time.Since(start).Seconds())
+	}
 	for _, player := range lobby.playersMap {
 		if player.IsOnline {
 			lobby.sendTo(player.Id, lobby.getGameState(player.Id))
