@@ -20,7 +20,7 @@ A few of the moments that make up a game:
 
 ![Playing a 5-card combo to take a card from the discard pile](docs/shot-5combo.png)
 
-**Alter the Future** — reorder the top of the deck (here, an Exploding Kitten is coming up next):
+**Alter the Future** — reorder the top of the deck (here, an Exploding Kitten is coming up soon):
 
 ![Reordering the top three cards of the deck](docs/shot-alter.png)
 
