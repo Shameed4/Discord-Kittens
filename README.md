@@ -4,6 +4,30 @@ A real-time multiplayer Exploding Kittens clone built with a **Go WebSocket back
 
 It runs as a single process, or as a **cluster of identical nodes coordinated through Redis** — where a node can be killed mid-game and another one picks the game up, nope countdown and all, without anyone losing their hand. Under a scripted chaos run, killing a node mid-game cost **zero games out of 16** ([results](#results)).
 
+## Demo
+
+![Gameplay demo — the table, hands, and the live nope window](docs/demo.gif)
+
+_The play area during a full game — cards, combos, and the live nope-countdown window. **[Watch the full-length clip →](docs/demo.mp4)**_
+
+A few of the moments that make up a game:
+
+**Defuse** — draw the Exploding Kitten and you choose where to sneak it back into the deck:
+
+![Placing a defused Exploding Kitten back into the deck](docs/shot-defuse.png)
+
+**5-card combo** — play five cards and take any card you want straight from the discard pile:
+
+![Playing a 5-card combo to take a card from the discard pile](docs/shot-5combo.png)
+
+**Alter the Future** — reorder the top of the deck (here, an Exploding Kitten is coming up next):
+
+![Reordering the top three cards of the deck](docs/shot-alter.png)
+
+And the endgame, with the game log showing the nopes, combos, and defuses that got there:
+
+![Game over — "Goat wins!" with the full action log](docs/demo-gameover.png)
+
 ## Architecture
 
 ```
